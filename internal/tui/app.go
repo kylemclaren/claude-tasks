@@ -143,6 +143,63 @@ const (
 	fieldCount
 )
 
+// Layout constants
+const (
+	minWidth        = 60
+	maxTableWidth   = 160
+	headerHeight    = 4  // Logo + spacing
+	footerHeight    = 4  // Help + status
+	minTableHeight  = 5
+	formHeaderHeight = 4
+	formFooterHeight = 6
+	outputHeaderHeight = 5
+	outputFooterHeight = 3
+)
+
+// calculateTableColumns returns column definitions sized for the given width
+func calculateTableColumns(width int) []table.Column {
+	// Account for table borders and padding
+	availableWidth := width - 4
+	if availableWidth < minWidth {
+		availableWidth = minWidth
+	}
+	if availableWidth > maxTableWidth {
+		availableWidth = maxTableWidth
+	}
+
+	// Column proportions (percentages): Name 25%, Schedule 20%, Status 12%, Next 20%, Last 20%
+	// Status is fixed width since it's short text
+	statusWidth := 10
+	remaining := availableWidth - statusWidth - 8 // 8 for column separators
+
+	nameWidth := remaining * 25 / 85
+	scheduleWidth := remaining * 20 / 85
+	nextWidth := remaining * 20 / 85
+	lastWidth := remaining * 20 / 85
+
+	// Ensure minimum widths
+	if nameWidth < 12 {
+		nameWidth = 12
+	}
+	if scheduleWidth < 15 {
+		scheduleWidth = 15
+	}
+	if nextWidth < 14 {
+		nextWidth = 14
+	}
+	if lastWidth < 14 {
+		lastWidth = 14
+	}
+
+	return []table.Column{
+		{Title: "Name", Width: nameWidth},
+		{Title: "Schedule", Width: scheduleWidth},
+		{Title: "Status", Width: statusWidth},
+		{Title: "Next Run", Width: nextWidth},
+		{Title: "Last Run", Width: lastWidth},
+	}
+}
+
 // NewModel creates a new TUI model
 func NewModel(database *db.DB, sched *scheduler.Scheduler) Model {
 	// Spinner
@@ -155,19 +212,13 @@ func NewModel(database *db.DB, sched *scheduler.Scheduler) Model {
 	h.Styles.ShortKey = helpKeyStyle
 	h.Styles.ShortDesc = helpDescStyle
 
-	// Table
-	columns := []table.Column{
-		{Title: "Name", Width: 20},
-		{Title: "Schedule", Width: 20},
-		{Title: "Status", Width: 12},
-		{Title: "Next Run", Width: 20},
-		{Title: "Last Run", Width: 20},
-	}
+	// Table - start with reasonable default, will resize on WindowSizeMsg
+	columns := calculateTableColumns(100)
 
 	t := table.New(
 		table.WithColumns(columns),
 		table.WithFocused(true),
-		table.WithHeight(7),
+		table.WithHeight(10),
 	)
 
 	ts := table.DefaultStyles()
@@ -224,35 +275,83 @@ func NewModel(database *db.DB, sched *scheduler.Scheduler) Model {
 func (m *Model) initFormInputs() {
 	m.formInputs = make([]textinput.Model, fieldCount)
 
+	// Calculate responsive width (will be updated on WindowSizeMsg)
+	inputWidth := m.getFormInputWidth()
+
 	m.formInputs[fieldName] = textinput.New()
 	m.formInputs[fieldName].Placeholder = "Daily code review"
 	m.formInputs[fieldName].CharLimit = 100
-	m.formInputs[fieldName].Width = 50
+	m.formInputs[fieldName].Width = inputWidth
 
 	// Prompt uses textarea for multi-line input
 	m.promptInput = textarea.New()
 	m.promptInput.Placeholder = "Review recent changes and summarize..."
 	m.promptInput.CharLimit = 2000
-	m.promptInput.SetWidth(52)
-	m.promptInput.SetHeight(6)
+	m.promptInput.SetWidth(inputWidth + 2)
+	m.promptInput.SetHeight(m.getTextareaHeight())
 	m.promptInput.ShowLineNumbers = false
 
 	m.formInputs[fieldCron] = textinput.New()
 	m.formInputs[fieldCron].Placeholder = "0 * * * * * (every minute)"
 	m.formInputs[fieldCron].CharLimit = 50
-	m.formInputs[fieldCron].Width = 50
+	m.formInputs[fieldCron].Width = inputWidth
 
 	m.formInputs[fieldWorkingDir] = textinput.New()
 	m.formInputs[fieldWorkingDir].Placeholder = "/path/to/project"
 	m.formInputs[fieldWorkingDir].CharLimit = 500
-	m.formInputs[fieldWorkingDir].Width = 50
+	m.formInputs[fieldWorkingDir].Width = inputWidth
 	wd, _ := os.Getwd()
 	m.formInputs[fieldWorkingDir].SetValue(wd)
 
 	m.formInputs[fieldDiscordWebhook] = textinput.New()
 	m.formInputs[fieldDiscordWebhook].Placeholder = "https://discord.com/api/webhooks/..."
 	m.formInputs[fieldDiscordWebhook].CharLimit = 500
-	m.formInputs[fieldDiscordWebhook].Width = 50
+	m.formInputs[fieldDiscordWebhook].Width = inputWidth
+}
+
+// getFormInputWidth calculates responsive input width
+func (m *Model) getFormInputWidth() int {
+	if m.width == 0 {
+		return 50 // default before first WindowSizeMsg
+	}
+	// Use ~80% of available width, with min/max bounds
+	width := (m.width - 8) * 80 / 100
+	if width < 40 {
+		width = 40
+	}
+	if width > 100 {
+		width = 100
+	}
+	return width
+}
+
+// getTextareaHeight calculates responsive textarea height
+func (m *Model) getTextareaHeight() int {
+	if m.height == 0 {
+		return 6 // default before first WindowSizeMsg
+	}
+	// Calculate available height for form
+	// Each field takes ~3 lines (label + input + spacing)
+	otherFieldsHeight := 4 * 3 // 4 other fields
+	availableForTextarea := m.height - formHeaderHeight - formFooterHeight - otherFieldsHeight - 4
+	if availableForTextarea < 4 {
+		availableForTextarea = 4
+	}
+	if availableForTextarea > 12 {
+		availableForTextarea = 12
+	}
+	return availableForTextarea
+}
+
+// updateFormWidths updates all form input widths for new terminal size
+func (m *Model) updateFormWidths(width int) {
+	inputWidth := m.getFormInputWidth()
+
+	for i := range m.formInputs {
+		m.formInputs[i].Width = inputWidth
+	}
+	m.promptInput.SetWidth(inputWidth + 2)
+	m.promptInput.SetHeight(m.getTextareaHeight())
 }
 
 func (m *Model) resetForm() {
@@ -284,6 +383,15 @@ func (m *Model) updateTable() {
 		return
 	}
 
+	// Get current column widths for truncation
+	columns := m.table.Columns()
+	nameWidth := 18
+	scheduleWidth := 18
+	if len(columns) >= 2 {
+		nameWidth = columns[0].Width - 2     // leave room for ellipsis
+		scheduleWidth = columns[1].Width - 2
+	}
+
 	rows := make([]table.Row, len(m.tasks))
 	for i, task := range m.tasks {
 		status := "disabled"
@@ -304,22 +412,13 @@ func (m *Model) updateTable() {
 		}
 
 		rows[i] = table.Row{
-			truncate(task.Name, 18),
-			truncate(task.CronExpr, 18),
+			truncate(task.Name, nameWidth),
+			truncate(task.CronExpr, scheduleWidth),
 			status,
 			nextRun,
 			lastRun,
 		}
 	}
-	// Set height first, then rows
-	h := len(m.tasks)
-	if h < 5 {
-		h = 5
-	}
-	if h > 15 {
-		h = 15
-	}
-	m.table.SetHeight(h)
 	m.table.SetRows(rows)
 }
 
@@ -438,19 +537,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.table.SetWidth(msg.Width - 4)
-		// Set reasonable table height
-		h := msg.Height - 15
-		if h < 5 {
-			h = 5
+
+		// Update table columns and dimensions
+		m.table.SetColumns(calculateTableColumns(msg.Width))
+		tableWidth := msg.Width - 4
+		if tableWidth > maxTableWidth {
+			tableWidth = maxTableWidth
 		}
-		if h > 20 {
-			h = 20
+		m.table.SetWidth(tableWidth)
+
+		// Calculate table height based on available space
+		// Account for header, running indicator (2 lines if shown), status, and help
+		runningIndicatorHeight := 0
+		if len(m.runningTasks) > 0 {
+			runningIndicatorHeight = 2
 		}
-		m.table.SetHeight(h)
+		availableHeight := msg.Height - headerHeight - footerHeight - runningIndicatorHeight - 2 // 2 for app padding
+		if availableHeight < minTableHeight {
+			availableHeight = minTableHeight
+		}
+		m.table.SetHeight(availableHeight)
+
+		// Update viewport for output view
+		viewportHeight := msg.Height - outputHeaderHeight - outputFooterHeight - 2
+		if viewportHeight < 5 {
+			viewportHeight = 5
+		}
 		m.viewport.Width = msg.Width - 6
-		m.viewport.Height = msg.Height - 12
+		m.viewport.Height = viewportHeight
+
 		m.help.Width = msg.Width
+
+		// Update form input widths
+		m.updateFormWidths(msg.Width)
+
 		// Update markdown renderer for new width
 		if renderer, err := glamour.NewTermRenderer(
 			glamour.WithAutoStyle(),
