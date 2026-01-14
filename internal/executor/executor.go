@@ -64,7 +64,7 @@ func (e *Executor) Execute(ctx context.Context, task *db.Task) *Result {
 			}
 			endTime := time.Now()
 			run.EndedAt = &endTime
-			e.db.CreateTaskRun(run)
+			_ = e.db.CreateTaskRun(run)
 
 			return &Result{
 				Skipped:    true,
@@ -107,15 +107,15 @@ func (e *Executor) Execute(ctx context.Context, task *db.Task) *Result {
 	} else {
 		run.Status = db.RunStatusCompleted
 	}
-	e.db.UpdateTaskRun(run)
+	_ = e.db.UpdateTaskRun(run)
 
 	// Update task's last run time
 	task.LastRunAt = &endTime
-	e.db.UpdateTask(task)
+	_ = e.db.UpdateTask(task)
 
 	// Send Discord notification if configured
 	if task.DiscordWebhook != "" {
-		e.discord.SendResult(task.DiscordWebhook, task, run)
+		_ = e.discord.SendResult(task.DiscordWebhook, task, run)
 	}
 
 	result := &Result{

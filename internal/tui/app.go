@@ -341,7 +341,6 @@ type usageUpdatedMsg struct {
 }
 type thresholdSavedMsg struct{ threshold float64 }
 type errMsg struct{ err error }
-type statusClearMsg struct{}
 type tickMsg time.Time
 
 func (m Model) Init() tea.Cmd {
@@ -702,12 +701,12 @@ func (m *Model) saveTask() tea.Cmd {
 			if err := m.db.UpdateTask(task); err != nil {
 				return errMsg{err}
 			}
-			m.scheduler.UpdateTask(task)
+			_ = m.scheduler.UpdateTask(task)
 		} else {
 			if err := m.db.CreateTask(task); err != nil {
 				return errMsg{err}
 			}
-			m.scheduler.AddTask(task)
+			_ = m.scheduler.AddTask(task)
 		}
 
 		return taskCreatedMsg{task}
@@ -731,7 +730,7 @@ func (m *Model) toggleTask(id int64) tea.Cmd {
 		}
 		task, _ := m.db.GetTask(id)
 		if task != nil {
-			m.scheduler.UpdateTask(task)
+			_ = m.scheduler.UpdateTask(task)
 		}
 		return taskToggledMsg{id}
 	}

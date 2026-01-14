@@ -162,7 +162,7 @@ func (s *Scheduler) scheduleTaskLocked(task *db.Task) error {
 	entry := s.cron.Entry(entryID)
 	if !entry.Next.IsZero() {
 		task.NextRunAt = &entry.Next
-		s.db.UpdateTask(task)
+		_ = s.db.UpdateTask(task)
 	}
 
 	return nil
