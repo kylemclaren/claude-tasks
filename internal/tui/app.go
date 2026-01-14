@@ -710,7 +710,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tasksLoadedMsg:
 		m.tasks = msg.tasks
-		m.nextRuns = m.scheduler.GetAllNextRunTimes()
+		if m.scheduler != nil {
+			m.nextRuns = m.scheduler.GetAllNextRunTimes()
+		} else {
+			m.nextRuns = m.getNextRunsFromDB()
+		}
 		m.updateTable()
 		cmds = append(cmds, m.checkRunningTasks())
 
