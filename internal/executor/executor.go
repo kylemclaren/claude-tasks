@@ -34,10 +34,10 @@ func New(database *db.DB) *Executor {
 
 // Result represents the result of a task execution
 type Result struct {
-	Output    string
-	Error     error
-	Duration  time.Duration
-	Skipped   bool
+	Output     string
+	Error      error
+	Duration   time.Duration
+	Skipped    bool
 	SkipReason string
 }
 

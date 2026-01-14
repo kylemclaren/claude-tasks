@@ -19,6 +19,7 @@ import (
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/kylemclaren/claude-tasks/internal/db"
+	"github.com/kylemclaren/claude-tasks/internal/executor"
 	"github.com/kylemclaren/claude-tasks/internal/scheduler"
 	"github.com/kylemclaren/claude-tasks/internal/usage"
 	"github.com/robfig/cron/v3"
@@ -86,8 +87,10 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 
 // Model is the main TUI model
 type Model struct {
-	db        *db.DB
-	scheduler *scheduler.Scheduler
+	db         *db.DB
+	scheduler  *scheduler.Scheduler
+	executor   *executor.Executor
+	daemonMode bool // true if external daemon is handling scheduling
 
 	// View state
 	currentView View
@@ -127,9 +130,9 @@ type Model struct {
 	formValidation map[int]string // Validation errors per field
 
 	// Cron helper
-	showCronHelper    bool
-	cronHelperIndex   int
-	cronPresets       []cronPreset
+	showCronHelper  bool
+	cronHelperIndex int
+	cronPresets     []cronPreset
 
 	// Output view
 	selectedTask *db.Task
@@ -172,13 +175,13 @@ const (
 
 // Layout constants
 const (
-	minWidth        = 60
-	maxTableWidth   = 160
-	headerHeight    = 4  // Logo + spacing
-	footerHeight    = 4  // Help + status
-	minTableHeight  = 5
-	formHeaderHeight = 4
-	formFooterHeight = 6
+	minWidth           = 60
+	maxTableWidth      = 160
+	headerHeight       = 4 // Logo + spacing
+	footerHeight       = 4 // Help + status
+	minTableHeight     = 5
+	formHeaderHeight   = 4
+	formFooterHeight   = 6
 	outputHeaderHeight = 5
 	outputFooterHeight = 3
 )
@@ -228,7 +231,8 @@ func calculateTableColumns(width int) []table.Column {
 }
 
 // NewModel creates a new TUI model
-func NewModel(database *db.DB, sched *scheduler.Scheduler) Model {
+// If daemonMode is true, scheduler can be nil and an executor will be created for direct task runs
+func NewModel(database *db.DB, sched *scheduler.Scheduler, daemonMode bool) Model {
 	// Spinner
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -299,9 +303,17 @@ func NewModel(database *db.DB, sched *scheduler.Scheduler) Model {
 		{name: "Monthly on 1st", expr: "0 0 9 1 * *", desc: "Runs on the 1st of each month at 9:00 AM"},
 	}
 
+	// Create executor for direct task runs (used in daemon mode)
+	var exec *executor.Executor
+	if daemonMode {
+		exec = executor.New(database)
+	}
+
 	m := Model{
 		db:              database,
 		scheduler:       sched,
+		executor:        exec,
+		daemonMode:      daemonMode,
 		spinner:         s,
 		help:            h,
 		table:           t,
@@ -451,7 +463,7 @@ func (m *Model) updateTable() {
 	nameWidth := 18
 	scheduleWidth := 18
 	if len(columns) >= 2 {
-		nameWidth = columns[0].Width - 2     // leave room for ellipsis
+		nameWidth = columns[0].Width - 2 // leave room for ellipsis
 		scheduleWidth = columns[1].Width - 2
 	}
 
@@ -678,7 +690,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 
 	case tickMsg:
-		m.nextRuns = m.scheduler.GetAllNextRunTimes()
+		if m.scheduler != nil {
+			m.nextRuns = m.scheduler.GetAllNextRunTimes()
+		} else {
+			// In daemon mode, read next run times from DB
+			m.nextRuns = m.getNextRunsFromDB()
+		}
 		m.updateTable()
 
 		// Decrement status timer
@@ -865,9 +882,17 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			idx := m.table.Cursor()
 			if idx < len(tasksToUse) {
 				task := tasksToUse[idx]
-				if err := m.scheduler.RunTaskNow(task.ID); err != nil {
-					m.setStatus("Error: "+err.Error(), true)
-				} else {
+				if m.scheduler != nil {
+					if err := m.scheduler.RunTaskNow(task.ID); err != nil {
+						m.setStatus("Error: "+err.Error(), true)
+					} else {
+						m.runningTasks[task.ID] = true
+						m.updateTable()
+						m.setStatus("Started: "+task.Name, false)
+					}
+				} else if m.executor != nil {
+					// In daemon mode, run directly via executor
+					m.executor.ExecuteAsync(task)
 					m.runningTasks[task.ID] = true
 					m.updateTable()
 					m.setStatus("Started: "+task.Name, false)
@@ -1165,12 +1190,16 @@ func (m *Model) saveTask() tea.Cmd {
 			if err := m.db.UpdateTask(task); err != nil {
 				return errMsg{err}
 			}
-			_ = m.scheduler.UpdateTask(task)
+			if m.scheduler != nil {
+				_ = m.scheduler.UpdateTask(task)
+			}
 		} else {
 			if err := m.db.CreateTask(task); err != nil {
 				return errMsg{err}
 			}
-			_ = m.scheduler.AddTask(task)
+			if m.scheduler != nil {
+				_ = m.scheduler.AddTask(task)
+			}
 		}
 
 		return taskCreatedMsg{task}
@@ -1179,7 +1208,9 @@ func (m *Model) saveTask() tea.Cmd {
 
 func (m *Model) deleteTask(id int64) tea.Cmd {
 	return func() tea.Msg {
-		m.scheduler.RemoveTask(id)
+		if m.scheduler != nil {
+			m.scheduler.RemoveTask(id)
+		}
 		if err := m.db.DeleteTask(id); err != nil {
 			return errMsg{err}
 		}
@@ -1194,7 +1225,9 @@ func (m *Model) toggleTask(id int64) tea.Cmd {
 		}
 		task, _ := m.db.GetTask(id)
 		if task != nil {
-			_ = m.scheduler.UpdateTask(task)
+			if m.scheduler != nil {
+				_ = m.scheduler.UpdateTask(task)
+			}
 			return taskToggledMsg{id: id, enabled: task.Enabled}
 		}
 		return taskToggledMsg{id: id, enabled: false}
@@ -1349,7 +1382,6 @@ func (m Model) renderList() string {
 		b.WriteString(statusRunning.Render(fmt.Sprintf("%d task(s) running", len(m.runningTasks))))
 		b.WriteString("\n\n")
 	}
-
 
 	// Table or empty state
 	tasksToShow := m.getDisplayTasks()
@@ -1738,9 +1770,25 @@ func (m Model) renderOutputContent() string {
 }
 
 // Run starts the TUI application
-func Run(database *db.DB, sched *scheduler.Scheduler) error {
-	m := NewModel(database, sched)
+// If daemonMode is true, scheduler can be nil (external daemon handles scheduling)
+func Run(database *db.DB, sched *scheduler.Scheduler, daemonMode bool) error {
+	m := NewModel(database, sched, daemonMode)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
+}
+
+// getNextRunsFromDB reads next run times from DB (used when in daemon mode)
+func (m *Model) getNextRunsFromDB() map[int64]time.Time {
+	result := make(map[int64]time.Time)
+	tasks, err := m.db.ListTasks()
+	if err != nil {
+		return result
+	}
+	for _, task := range tasks {
+		if task.NextRunAt != nil && task.Enabled {
+			result[task.ID] = *task.NextRunAt
+		}
+	}
+	return result
 }

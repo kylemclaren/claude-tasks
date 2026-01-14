@@ -119,6 +119,36 @@ check_path() {
     fi
 }
 
+# Setup Sprite service (if running on Sprite)
+setup_sprite_service() {
+    if ! command -v sprite-env &> /dev/null; then
+        return 0
+    fi
+
+    info "Sprite environment detected, setting up daemon service..."
+
+    # Check if service already exists
+    if sprite-env services get claude-tasks-daemon &> /dev/null; then
+        info "Stopping existing daemon service..."
+        sprite-env services stop claude-tasks-daemon &> /dev/null || true
+        sprite-env services delete claude-tasks-daemon &> /dev/null || true
+    fi
+
+    # Create the daemon service
+    sprite-env services create claude-tasks-daemon \
+        --cmd "$INSTALL_DIR/$TARGET_NAME" \
+        --args daemon \
+        --no-stream
+
+    info "Daemon service created and started"
+    echo ""
+    echo -e "${CYAN}Sprite service commands:${NC}"
+    echo "  sprite-env services list                    # List all services"
+    echo "  sprite-env services stop claude-tasks-daemon   # Stop daemon"
+    echo "  sprite-env services start claude-tasks-daemon  # Start daemon"
+    echo ""
+}
+
 # Verify installation
 verify() {
     echo ""
@@ -126,6 +156,9 @@ verify() {
     echo ""
     echo "Run the TUI:"
     echo -e "  ${CYAN}claude-tasks${NC}"
+    echo ""
+    echo "Run scheduler as daemon:"
+    echo -e "  ${CYAN}claude-tasks daemon${NC}"
     echo ""
     echo "Data stored in: ~/.claude-tasks/"
     echo ""
@@ -142,6 +175,7 @@ main() {
     get_latest_version
     install
     check_path
+    setup_sprite_service
     verify
 }
 

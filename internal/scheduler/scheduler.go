@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/robfig/cron/v3"
 	"github.com/kylemclaren/claude-tasks/internal/db"
 	"github.com/kylemclaren/claude-tasks/internal/executor"
+	"github.com/robfig/cron/v3"
 )
 
 // Scheduler manages cron jobs for tasks

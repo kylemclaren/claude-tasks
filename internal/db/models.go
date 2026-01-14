@@ -20,13 +20,13 @@ type Task struct {
 
 // TaskRun represents an execution of a task
 type TaskRun struct {
-	ID        int64     `json:"id"`
-	TaskID    int64     `json:"task_id"`
-	StartedAt time.Time `json:"started_at"`
+	ID        int64      `json:"id"`
+	TaskID    int64      `json:"task_id"`
+	StartedAt time.Time  `json:"started_at"`
 	EndedAt   *time.Time `json:"ended_at,omitempty"`
-	Status    RunStatus `json:"status"`
-	Output    string    `json:"output"`
-	Error     string    `json:"error,omitempty"`
+	Status    RunStatus  `json:"status"`
+	Output    string     `json:"output"`
+	Error     string     `json:"error,omitempty"`
 }
 
 // RunStatus represents the status of a task run

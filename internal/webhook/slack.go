@@ -25,10 +25,10 @@ func NewSlack() *Slack {
 
 // SlackBlock represents a Slack Block Kit block
 type SlackBlock struct {
-	Type     string          `json:"type"`
-	Text     *SlackTextObj   `json:"text,omitempty"`
-	Fields   []SlackTextObj  `json:"fields,omitempty"`
-	Elements []SlackElement  `json:"elements,omitempty"`
+	Type     string         `json:"type"`
+	Text     *SlackTextObj  `json:"text,omitempty"`
+	Fields   []SlackTextObj `json:"fields,omitempty"`
+	Elements []SlackElement `json:"elements,omitempty"`
 }
 
 // SlackTextObj represents a Slack text object

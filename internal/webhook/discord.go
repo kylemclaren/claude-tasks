@@ -24,12 +24,12 @@ func NewDiscord() *Discord {
 
 // DiscordEmbed represents a Discord embed object
 type DiscordEmbed struct {
-	Title       string        `json:"title"`
-	Description string        `json:"description"`
-	Color       int           `json:"color"`
-	Fields      []EmbedField  `json:"fields,omitempty"`
-	Timestamp   string        `json:"timestamp,omitempty"`
-	Footer      *EmbedFooter  `json:"footer,omitempty"`
+	Title       string       `json:"title"`
+	Description string       `json:"description"`
+	Color       int          `json:"color"`
+	Fields      []EmbedField `json:"fields,omitempty"`
+	Timestamp   string       `json:"timestamp,omitempty"`
+	Footer      *EmbedFooter `json:"footer,omitempty"`
 }
 
 // EmbedField represents a field in a Discord embed
