@@ -166,6 +166,7 @@ const (
 	fieldCron
 	fieldWorkingDir
 	fieldDiscordWebhook
+	fieldSlackWebhook
 	fieldCount
 )
 
@@ -356,6 +357,11 @@ func (m *Model) initFormInputs() {
 	m.formInputs[fieldDiscordWebhook].Placeholder = "https://discord.com/api/webhooks/..."
 	m.formInputs[fieldDiscordWebhook].CharLimit = 500
 	m.formInputs[fieldDiscordWebhook].Width = inputWidth
+
+	m.formInputs[fieldSlackWebhook] = textinput.New()
+	m.formInputs[fieldSlackWebhook].Placeholder = "https://hooks.slack.com/services/..."
+	m.formInputs[fieldSlackWebhook].CharLimit = 500
+	m.formInputs[fieldSlackWebhook].Width = inputWidth
 }
 
 // getFormInputWidth calculates responsive input width
@@ -892,6 +898,7 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.formInputs[fieldCron].SetValue(m.editingTask.CronExpr)
 				m.formInputs[fieldWorkingDir].SetValue(m.editingTask.WorkingDir)
 				m.formInputs[fieldDiscordWebhook].SetValue(m.editingTask.DiscordWebhook)
+				m.formInputs[fieldSlackWebhook].SetValue(m.editingTask.SlackWebhook)
 				m.focusFormField(fieldName)
 				return m, textinput.Blink
 			}
@@ -1131,6 +1138,7 @@ func (m *Model) saveTask() tea.Cmd {
 		cronExpr := strings.TrimSpace(m.formInputs[fieldCron].Value())
 		workingDir := strings.TrimSpace(m.formInputs[fieldWorkingDir].Value())
 		discordWebhook := strings.TrimSpace(m.formInputs[fieldDiscordWebhook].Value())
+		slackWebhook := strings.TrimSpace(m.formInputs[fieldSlackWebhook].Value())
 
 		if name == "" || prompt == "" || cronExpr == "" {
 			return errMsg{fmt.Errorf("name, prompt, and cron are required")}
@@ -1146,6 +1154,7 @@ func (m *Model) saveTask() tea.Cmd {
 			CronExpr:       cronExpr,
 			WorkingDir:     workingDir,
 			DiscordWebhook: discordWebhook,
+			SlackWebhook:   slackWebhook,
 			Enabled:        true,
 		}
 
@@ -1501,11 +1510,12 @@ func (m Model) renderForm(title string) string {
 		return b.String()
 	}
 
-	labels := []string{"Name", "Prompt", "Cron Expression", "Working Directory", "Discord Webhook (optional)"}
+	labels := []string{"Name", "Prompt", "Cron Expression", "Working Directory", "Discord Webhook (optional)", "Slack Webhook (optional)"}
 	hints := []string{
 		"",
 		"(multi-line, tab to next field)",
 		"Press ? for presets",
+		"",
 		"",
 		"",
 	}
@@ -1521,7 +1531,7 @@ func (m Model) renderForm(title string) string {
 		if errMsg, hasErr := m.formValidation[i]; hasErr {
 			b.WriteString("  ")
 			b.WriteString(errorMsgStyle.Render("✗ " + errMsg))
-		} else if i != fieldDiscordWebhook { // Don't show checkmark for optional field
+		} else if i != fieldDiscordWebhook && i != fieldSlackWebhook { // Don't show checkmark for optional fields
 			// Show checkmark if field has content and is valid
 			var hasContent bool
 			if i == fieldPrompt {

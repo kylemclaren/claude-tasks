@@ -16,6 +16,7 @@ import (
 type Executor struct {
 	db          *db.DB
 	discord     *webhook.Discord
+	slack       *webhook.Slack
 	usageClient *usage.Client
 }
 
@@ -26,6 +27,7 @@ func New(database *db.DB) *Executor {
 	return &Executor{
 		db:          database,
 		discord:     webhook.NewDiscord(),
+		slack:       webhook.NewSlack(),
 		usageClient: usageClient,
 	}
 }
@@ -113,9 +115,12 @@ func (e *Executor) Execute(ctx context.Context, task *db.Task) *Result {
 	task.LastRunAt = &endTime
 	_ = e.db.UpdateTask(task)
 
-	// Send Discord notification if configured
+	// Send webhook notifications if configured
 	if task.DiscordWebhook != "" {
 		_ = e.discord.SendResult(task.DiscordWebhook, task, run)
+	}
+	if task.SlackWebhook != "" {
+		_ = e.slack.SendResult(task.SlackWebhook, task, run)
 	}
 
 	result := &Result{

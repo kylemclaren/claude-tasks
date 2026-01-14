@@ -4,17 +4,18 @@ import "time"
 
 // Task represents a scheduled Claude task
 type Task struct {
-	ID           int64     `json:"id"`
-	Name         string    `json:"name"`
-	Prompt       string    `json:"prompt"`
-	CronExpr     string    `json:"cron_expr"`
-	WorkingDir   string    `json:"working_dir"`
-	DiscordWebhook string  `json:"discord_webhook,omitempty"`
-	Enabled      bool      `json:"enabled"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	LastRunAt    *time.Time `json:"last_run_at,omitempty"`
-	NextRunAt    *time.Time `json:"next_run_at,omitempty"`
+	ID             int64      `json:"id"`
+	Name           string     `json:"name"`
+	Prompt         string     `json:"prompt"`
+	CronExpr       string     `json:"cron_expr"`
+	WorkingDir     string     `json:"working_dir"`
+	DiscordWebhook string     `json:"discord_webhook,omitempty"`
+	SlackWebhook   string     `json:"slack_webhook,omitempty"`
+	Enabled        bool       `json:"enabled"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	LastRunAt      *time.Time `json:"last_run_at,omitempty"`
+	NextRunAt      *time.Time `json:"next_run_at,omitempty"`
 }
 
 // TaskRun represents an execution of a task

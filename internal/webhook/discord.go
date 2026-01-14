@@ -68,44 +68,45 @@ func (d *Discord) SendResult(webhookURL string, task *db.Task, run *db.TaskRun) 
 	}
 
 	// Truncate output if too long (Discord has 4096 char limit for embed description)
+	// Keep markdown formatting - Discord embeds support bold, italic, links, lists, etc.
 	output := run.Output
-	if len(output) > 1500 {
-		output = output[:1500] + "\n... (truncated)"
+	if len(output) > 3500 {
+		output = output[:3500] + "\n\n*... (truncated)*"
 	}
 	if output == "" {
-		output = "_No output_"
+		output = "*No output*"
 	}
 
 	// Calculate duration
 	var duration string
 	if run.EndedAt != nil {
-		d := run.EndedAt.Sub(run.StartedAt)
-		duration = d.Round(time.Second).String()
+		dur := run.EndedAt.Sub(run.StartedAt)
+		duration = dur.Round(time.Second).String()
 	} else {
 		duration = "running"
 	}
 
 	embed := DiscordEmbed{
 		Title:       fmt.Sprintf("%s Task: %s", statusEmoji, task.Name),
-		Description: fmt.Sprintf("```\n%s\n```", output),
+		Description: output,
 		Color:       color,
 		Fields: []EmbedField{
 			{Name: "Status", Value: string(run.Status), Inline: true},
 			{Name: "Duration", Value: duration, Inline: true},
-			{Name: "Working Dir", Value: task.WorkingDir, Inline: true},
+			{Name: "Working Dir", Value: fmt.Sprintf("`%s`", task.WorkingDir), Inline: true},
 		},
 		Timestamp: run.StartedAt.Format(time.RFC3339),
 		Footer:    &EmbedFooter{Text: "Claude Tasks Scheduler"},
 	}
 
-	// Add error field if present
+	// Add error field if present - errors still use code block for readability
 	if run.Error != "" {
 		errMsg := run.Error
 		if len(errMsg) > 500 {
 			errMsg = errMsg[:500] + "..."
 		}
 		embed.Fields = append(embed.Fields, EmbedField{
-			Name:   "Error",
+			Name:   "⚠️ Error",
 			Value:  fmt.Sprintf("```\n%s\n```", errMsg),
 			Inline: false,
 		})
