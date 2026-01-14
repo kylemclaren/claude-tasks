@@ -258,3 +258,28 @@ func (db *DB) GetLatestTaskRun(taskID int64) (*TaskRun, error) {
 	}
 	return run, nil
 }
+
+// GetLastRunStatuses retrieves the last run status for all tasks
+func (db *DB) GetLastRunStatuses() (map[int64]RunStatus, error) {
+	rows, err := db.conn.Query(`
+		SELECT task_id, status FROM task_runs
+		WHERE id IN (
+			SELECT MAX(id) FROM task_runs GROUP BY task_id
+		)
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	statuses := make(map[int64]RunStatus)
+	for rows.Next() {
+		var taskID int64
+		var status string
+		if err := rows.Scan(&taskID, &status); err != nil {
+			return nil, err
+		}
+		statuses[taskID] = RunStatus(status)
+	}
+	return statuses, rows.Err()
+}

@@ -21,6 +21,7 @@ import (
 	"github.com/kylemclaren/claude-tasks/internal/db"
 	"github.com/kylemclaren/claude-tasks/internal/scheduler"
 	"github.com/kylemclaren/claude-tasks/internal/usage"
+	"github.com/robfig/cron/v3"
 )
 
 // View represents the current view
@@ -94,10 +95,22 @@ type Model struct {
 	height      int
 
 	// List view
-	tasks        []*db.Task
-	table        table.Model
-	runningTasks map[int64]bool
-	nextRuns     map[int64]time.Time
+	tasks           []*db.Task
+	table           table.Model
+	runningTasks    map[int64]bool
+	nextRuns        map[int64]time.Time
+	lastRunStatuses map[int64]db.RunStatus // Track last run status for each task
+
+	// Delete confirmation
+	confirmDelete      bool
+	deleteTaskID       int64
+	deleteTaskName     string
+	deleteConfirmFocus int // 0 = Yes, 1 = No
+
+	// Search/filter
+	searchMode    bool
+	searchInput   textinput.Model
+	filteredTasks []*db.Task
 
 	// Spinners for running tasks
 	spinner spinner.Model
@@ -107,10 +120,16 @@ type Model struct {
 	showHelp bool
 
 	// Add/Edit form
-	formInputs  []textinput.Model
-	promptInput textarea.Model
-	formFocus   int
-	editingTask *db.Task
+	formInputs     []textinput.Model
+	promptInput    textarea.Model
+	formFocus      int
+	editingTask    *db.Task
+	formValidation map[int]string // Validation errors per field
+
+	// Cron helper
+	showCronHelper    bool
+	cronHelperIndex   int
+	cronPresets       []cronPreset
 
 	// Output view
 	selectedTask *db.Task
@@ -131,6 +150,13 @@ type Model struct {
 	statusMsg   string
 	statusErr   bool
 	statusTimer int
+}
+
+// cronPreset represents a cron schedule preset
+type cronPreset struct {
+	name string
+	expr string
+	desc string
 }
 
 // Form field indices
@@ -253,19 +279,42 @@ func NewModel(database *db.DB, sched *scheduler.Scheduler) Model {
 	thresholdInput.Width = 10
 	thresholdInput.SetValue(fmt.Sprintf("%.0f", threshold))
 
+	// Search input
+	searchInput := textinput.New()
+	searchInput.Placeholder = "Search tasks..."
+	searchInput.CharLimit = 100
+	searchInput.Width = 30
+
+	// Cron presets
+	cronPresets := []cronPreset{
+		{name: "Every minute", expr: "0 * * * * *", desc: "Runs at the start of every minute"},
+		{name: "Every 5 minutes", expr: "0 */5 * * * *", desc: "Runs every 5 minutes"},
+		{name: "Every 15 minutes", expr: "0 */15 * * * *", desc: "Runs every 15 minutes"},
+		{name: "Every hour", expr: "0 0 * * * *", desc: "Runs at the start of every hour"},
+		{name: "Every 2 hours", expr: "0 0 */2 * * *", desc: "Runs every 2 hours"},
+		{name: "Daily at 9am", expr: "0 0 9 * * *", desc: "Runs once daily at 9:00 AM"},
+		{name: "Daily at midnight", expr: "0 0 0 * * *", desc: "Runs once daily at midnight"},
+		{name: "Weekly on Monday", expr: "0 0 9 * * 1", desc: "Runs every Monday at 9:00 AM"},
+		{name: "Monthly on 1st", expr: "0 0 9 1 * *", desc: "Runs on the 1st of each month at 9:00 AM"},
+	}
+
 	m := Model{
-		db:             database,
-		scheduler:      sched,
-		spinner:        s,
-		help:           h,
-		table:          t,
-		runningTasks:   make(map[int64]bool),
-		nextRuns:       make(map[int64]time.Time),
-		viewport:       viewport.New(80, 20),
-		mdRenderer:     renderer,
-		usageClient:    usageClient,
-		usageThreshold: threshold,
-		thresholdInput: thresholdInput,
+		db:              database,
+		scheduler:       sched,
+		spinner:         s,
+		help:            h,
+		table:           t,
+		runningTasks:    make(map[int64]bool),
+		nextRuns:        make(map[int64]time.Time),
+		lastRunStatuses: make(map[int64]db.RunStatus),
+		searchInput:     searchInput,
+		cronPresets:     cronPresets,
+		formValidation:  make(map[int]string),
+		viewport:        viewport.New(80, 20),
+		mdRenderer:      renderer,
+		usageClient:     usageClient,
+		usageThreshold:  threshold,
+		thresholdInput:  thresholdInput,
 	}
 
 	m.initFormInputs()
@@ -378,7 +427,15 @@ func (m *Model) focusFormField(field int) {
 }
 
 func (m *Model) updateTable() {
-	if len(m.tasks) == 0 {
+	// Use filtered tasks if in search mode, otherwise all tasks
+	tasksToShow := m.tasks
+	if m.searchMode && len(m.filteredTasks) > 0 {
+		tasksToShow = m.filteredTasks
+	} else if m.searchMode && m.searchInput.Value() != "" {
+		tasksToShow = m.filteredTasks // Show empty if search has no matches
+	}
+
+	if len(tasksToShow) == 0 {
 		m.table.SetRows([]table.Row{})
 		return
 	}
@@ -392,14 +449,33 @@ func (m *Model) updateTable() {
 		scheduleWidth = columns[1].Width - 2
 	}
 
-	rows := make([]table.Row, len(m.tasks))
-	for i, task := range m.tasks {
-		status := "disabled"
-		if m.runningTasks[task.ID] {
-			status = "running"
-		} else if task.Enabled {
-			status = "enabled"
+	rows := make([]table.Row, len(tasksToShow))
+	for i, task := range tasksToShow {
+		// Build status with last run indicator
+		var statusParts []string
+
+		// Last run status indicator
+		if lastStatus, ok := m.lastRunStatuses[task.ID]; ok {
+			switch lastStatus {
+			case db.RunStatusCompleted:
+				statusParts = append(statusParts, "✓")
+			case db.RunStatusFailed:
+				statusParts = append(statusParts, "✗")
+			case db.RunStatusRunning:
+				statusParts = append(statusParts, "●")
+			}
 		}
+
+		// Current task status
+		if m.runningTasks[task.ID] {
+			statusParts = append(statusParts, "running")
+		} else if task.Enabled {
+			statusParts = append(statusParts, "enabled")
+		} else {
+			statusParts = append(statusParts, "disabled")
+		}
+
+		status := strings.Join(statusParts, " ")
 
 		nextRun := "-"
 		if next, ok := m.nextRuns[task.ID]; ok {
@@ -463,6 +539,7 @@ type usageUpdatedMsg struct {
 	err  error
 }
 type thresholdSavedMsg struct{ threshold float64 }
+type lastRunStatusesMsg struct{ statuses map[int64]db.RunStatus }
 type errMsg struct{ err error }
 type tickMsg time.Time
 
@@ -511,6 +588,16 @@ func (m *Model) checkRunningTasks() tea.Cmd {
 			}
 		}
 		return runningTasksMsg{running}
+	}
+}
+
+func (m *Model) fetchLastRunStatuses() tea.Cmd {
+	return func() tea.Msg {
+		statuses, err := m.db.GetLastRunStatuses()
+		if err != nil {
+			return lastRunStatusesMsg{statuses: make(map[int64]db.RunStatus)}
+		}
+		return lastRunStatusesMsg{statuses: statuses}
 	}
 }
 
@@ -596,7 +683,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		cmds = append(cmds, tickCmd(), m.checkRunningTasks(), m.fetchUsage())
+		cmds = append(cmds, tickCmd(), m.checkRunningTasks(), m.fetchUsage(), m.fetchLastRunStatuses())
 
 	case tasksLoadedMsg:
 		m.tasks = msg.tasks
@@ -606,6 +693,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case runningTasksMsg:
 		m.runningTasks = msg.running
+		m.updateTable()
+
+	case lastRunStatusesMsg:
+		m.lastRunStatuses = msg.statuses
 		m.updateTable()
 
 	case usageUpdatedMsg:
@@ -657,36 +748,117 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
+	// Handle delete confirmation mode
+	if m.confirmDelete {
+		switch msg.String() {
+		case "left", "h":
+			m.deleteConfirmFocus = 0 // Yes
+			return m, nil
+		case "right", "l":
+			m.deleteConfirmFocus = 1 // No
+			return m, nil
+		case "tab":
+			m.deleteConfirmFocus = (m.deleteConfirmFocus + 1) % 2
+			return m, nil
+		case "y", "Y":
+			m.confirmDelete = false
+			taskID := m.deleteTaskID
+			m.deleteTaskID = 0
+			m.deleteTaskName = ""
+			m.deleteConfirmFocus = 1
+			return m, m.deleteTask(taskID)
+		case "enter":
+			if m.deleteConfirmFocus == 0 {
+				// Yes selected - delete
+				m.confirmDelete = false
+				taskID := m.deleteTaskID
+				m.deleteTaskID = 0
+				m.deleteTaskName = ""
+				m.deleteConfirmFocus = 1
+				return m, m.deleteTask(taskID)
+			}
+			// No selected - cancel
+			m.confirmDelete = false
+			m.deleteTaskID = 0
+			m.deleteTaskName = ""
+			m.deleteConfirmFocus = 1
+			return m, nil
+		case "n", "N", "esc":
+			m.confirmDelete = false
+			m.deleteTaskID = 0
+			m.deleteTaskName = ""
+			m.deleteConfirmFocus = 1
+			return m, nil
+		}
+		return m, nil
+	}
+
+	// Handle search mode
+	if m.searchMode {
+		switch msg.String() {
+		case "esc":
+			m.searchMode = false
+			m.searchInput.SetValue("")
+			m.searchInput.Blur()
+			m.filteredTasks = nil
+			m.updateTable()
+			return m, nil
+		case "enter":
+			// Exit search mode but keep filter
+			m.searchInput.Blur()
+			return m, nil
+		default:
+			m.searchInput, cmd = m.searchInput.Update(msg)
+			// Update filtered tasks based on search
+			m.filterTasks()
+			m.updateTable()
+			return m, cmd
+		}
+	}
+
 	switch msg.String() {
 	case "q":
 		return m, tea.Quit
 	case "?":
 		m.showHelp = !m.showHelp
 		return m, nil
+	case "/":
+		// Enter search mode
+		m.searchMode = true
+		m.searchInput.Focus()
+		return m, textinput.Blink
 	case "a":
 		m.currentView = ViewAdd
 		m.resetForm()
 		m.formInputs[0].Focus()
 		return m, textinput.Blink
 	case "d":
-		if len(m.tasks) > 0 {
+		tasksToUse := m.getDisplayTasks()
+		if len(tasksToUse) > 0 {
 			idx := m.table.Cursor()
-			if idx < len(m.tasks) {
-				return m, m.deleteTask(m.tasks[idx].ID)
+			if idx < len(tasksToUse) {
+				// Show confirmation instead of deleting immediately
+				m.confirmDelete = true
+				m.deleteTaskID = tasksToUse[idx].ID
+				m.deleteTaskName = tasksToUse[idx].Name
+				m.deleteConfirmFocus = 1 // Default to "No" for safety
+				return m, nil
 			}
 		}
 	case "t":
-		if len(m.tasks) > 0 {
+		tasksToUse := m.getDisplayTasks()
+		if len(tasksToUse) > 0 {
 			idx := m.table.Cursor()
-			if idx < len(m.tasks) {
-				return m, m.toggleTask(m.tasks[idx].ID)
+			if idx < len(tasksToUse) {
+				return m, m.toggleTask(tasksToUse[idx].ID)
 			}
 		}
 	case "r":
-		if len(m.tasks) > 0 {
+		tasksToUse := m.getDisplayTasks()
+		if len(tasksToUse) > 0 {
 			idx := m.table.Cursor()
-			if idx < len(m.tasks) {
-				task := m.tasks[idx]
+			if idx < len(tasksToUse) {
+				task := tasksToUse[idx]
 				if err := m.scheduler.RunTaskNow(task.ID); err != nil {
 					m.setStatus("Error: "+err.Error(), true)
 				} else {
@@ -698,19 +870,21 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "enter":
-		if len(m.tasks) > 0 {
+		tasksToUse := m.getDisplayTasks()
+		if len(tasksToUse) > 0 {
 			idx := m.table.Cursor()
-			if idx < len(m.tasks) {
-				m.selectedTask = m.tasks[idx]
+			if idx < len(tasksToUse) {
+				m.selectedTask = tasksToUse[idx]
 				m.currentView = ViewOutput
 				return m, m.loadTaskRuns(m.selectedTask.ID)
 			}
 		}
 	case "e":
-		if len(m.tasks) > 0 {
+		tasksToUse := m.getDisplayTasks()
+		if len(tasksToUse) > 0 {
 			idx := m.table.Cursor()
-			if idx < len(m.tasks) {
-				m.editingTask = m.tasks[idx]
+			if idx < len(tasksToUse) {
+				m.editingTask = tasksToUse[idx]
 				m.currentView = ViewEdit
 				m.initFormInputs() // Reset form first
 				m.formInputs[fieldName].SetValue(m.editingTask.Name)
@@ -729,7 +903,8 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	default:
 		// Only forward to table if we have rows
-		if len(m.tasks) > 0 {
+		tasksToUse := m.getDisplayTasks()
+		if len(tasksToUse) > 0 {
 			m.table, cmd = m.table.Update(msg)
 		}
 	}
@@ -737,17 +912,121 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// getDisplayTasks returns the tasks currently being displayed (filtered or all)
+func (m *Model) getDisplayTasks() []*db.Task {
+	if m.searchMode && m.searchInput.Value() != "" {
+		return m.filteredTasks
+	}
+	return m.tasks
+}
+
+// filterTasks filters tasks based on search input
+func (m *Model) filterTasks() {
+	query := strings.ToLower(strings.TrimSpace(m.searchInput.Value()))
+	if query == "" {
+		m.filteredTasks = m.tasks
+		return
+	}
+
+	m.filteredTasks = nil
+	for _, task := range m.tasks {
+		if strings.Contains(strings.ToLower(task.Name), query) ||
+			strings.Contains(strings.ToLower(task.Prompt), query) {
+			m.filteredTasks = append(m.filteredTasks, task)
+		}
+	}
+}
+
+// validateForm validates all form fields and returns true if valid
+func (m *Model) validateForm() bool {
+	m.formValidation = make(map[int]string)
+	valid := true
+
+	// Validate name
+	name := strings.TrimSpace(m.formInputs[fieldName].Value())
+	if name == "" {
+		m.formValidation[fieldName] = "Name is required"
+		valid = false
+	}
+
+	// Validate prompt
+	prompt := strings.TrimSpace(m.promptInput.Value())
+	if prompt == "" {
+		m.formValidation[fieldPrompt] = "Prompt is required"
+		valid = false
+	}
+
+	// Validate cron expression
+	cronExpr := strings.TrimSpace(m.formInputs[fieldCron].Value())
+	if cronExpr == "" {
+		m.formValidation[fieldCron] = "Cron expression is required"
+		valid = false
+	} else {
+		// Use cron parser with seconds support
+		parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+		if _, err := parser.Parse(cronExpr); err != nil {
+			m.formValidation[fieldCron] = "Invalid cron format"
+			valid = false
+		}
+	}
+
+	// Validate working directory (if provided)
+	workDir := strings.TrimSpace(m.formInputs[fieldWorkingDir].Value())
+	if workDir != "" && workDir != "." {
+		if info, err := os.Stat(workDir); err != nil || !info.IsDir() {
+			m.formValidation[fieldWorkingDir] = "Directory not found"
+			valid = false
+		}
+	}
+
+	return valid
+}
+
 func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+
+	// Handle cron helper mode
+	if m.showCronHelper {
+		switch msg.String() {
+		case "up", "k":
+			if m.cronHelperIndex > 0 {
+				m.cronHelperIndex--
+			}
+			return m, nil
+		case "down", "j":
+			if m.cronHelperIndex < len(m.cronPresets)-1 {
+				m.cronHelperIndex++
+			}
+			return m, nil
+		case "enter":
+			// Apply selected preset
+			m.formInputs[fieldCron].SetValue(m.cronPresets[m.cronHelperIndex].expr)
+			m.showCronHelper = false
+			m.validateForm()
+			return m, nil
+		case "esc", "?":
+			m.showCronHelper = false
+			return m, nil
+		}
+		return m, nil
+	}
 
 	switch msg.String() {
 	case "esc":
 		m.currentView = ViewList
 		m.resetForm()
 		return m, nil
+	case "?":
+		// Show cron helper when in cron field
+		if m.formFocus == fieldCron {
+			m.showCronHelper = true
+			m.cronHelperIndex = 0
+			return m, nil
+		}
 	case "tab":
 		nextField := (m.formFocus + 1) % fieldCount
 		m.focusFormField(nextField)
+		m.validateForm()
 		return m, textinput.Blink
 	case "shift+tab":
 		prevField := m.formFocus - 1
@@ -755,22 +1034,31 @@ func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			prevField = fieldCount - 1
 		}
 		m.focusFormField(prevField)
+		m.validateForm()
 		return m, textinput.Blink
 	case "ctrl+s":
-		return m, m.saveTask()
+		if m.validateForm() {
+			return m, m.saveTask()
+		}
+		return m, nil
 	case "enter":
 		// In textarea (prompt), enter adds newline - don't navigate
 		if m.formFocus == fieldPrompt {
 			m.promptInput, cmd = m.promptInput.Update(msg)
+			m.validateForm()
 			return m, cmd
 		}
-		// On last field, submit
+		// On last field, submit if valid
 		if m.formFocus == fieldCount-1 {
-			return m, m.saveTask()
+			if m.validateForm() {
+				return m, m.saveTask()
+			}
+			return m, nil
 		}
 		// Otherwise navigate to next field
 		nextField := (m.formFocus + 1) % fieldCount
 		m.focusFormField(nextField)
+		m.validateForm()
 		return m, textinput.Blink
 	}
 
@@ -780,6 +1068,10 @@ func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	} else {
 		m.formInputs[m.formFocus], cmd = m.formInputs[m.formFocus].Update(msg)
 	}
+
+	// Real-time validation
+	m.validateForm()
+
 	return m, cmd
 }
 
@@ -932,7 +1224,81 @@ func (m Model) View() string {
 		content = m.renderSettings()
 	}
 
-	return appStyle.Render(content)
+	// Render the base content
+	baseView := appStyle.Render(content)
+
+	// Overlay delete confirmation modal if active
+	if m.confirmDelete {
+		return m.renderDeleteModal(baseView)
+	}
+
+	return baseView
+}
+
+// renderDeleteModal renders a centered modal overlay on top of the base view
+func (m Model) renderDeleteModal(baseView string) string {
+	// Button styles
+	activeButtonStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(primaryColor).
+		Padding(0, 3).
+		MarginRight(2).
+		Bold(true)
+
+	inactiveButtonStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(lipgloss.Color("#666666")).
+		Padding(0, 3).
+		MarginRight(2)
+
+	// Modal content
+	var yesBtn, noBtn string
+	if m.deleteConfirmFocus == 0 {
+		yesBtn = activeButtonStyle.Render("Yes")
+		noBtn = inactiveButtonStyle.Render("No")
+	} else {
+		yesBtn = inactiveButtonStyle.Render("Yes")
+		noBtn = activeButtonStyle.Render("No")
+	}
+
+	buttons := lipgloss.JoinHorizontal(lipgloss.Center, yesBtn, noBtn)
+
+	question := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		MarginBottom(1).
+		Render(fmt.Sprintf("Delete task '%s'?", m.deleteTaskName))
+
+	hint := subtitleStyle.Render("←/→ to select • enter to confirm • esc to cancel")
+
+	modalContent := lipgloss.JoinVertical(lipgloss.Center,
+		question,
+		"",
+		buttons,
+		"",
+		hint,
+	)
+
+	// Modal box style
+	modalStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#FF6B6B")).
+		Padding(1, 4).
+		Background(lipgloss.Color("#1a1a2e")).
+		Align(lipgloss.Center)
+
+	modal := modalStyle.Render(modalContent)
+
+	// Center the modal on screen using lipgloss.Place
+	return lipgloss.Place(
+		m.width,
+		m.height,
+		lipgloss.Center,
+		lipgloss.Center,
+		modal,
+		lipgloss.WithWhitespaceChars(" "),
+		lipgloss.WithWhitespaceForeground(lipgloss.Color("#333333")),
+	)
 }
 
 func (m Model) renderList() string {
@@ -956,6 +1322,16 @@ func (m Model) renderList() string {
 	}
 	b.WriteString("\n\n")
 
+	// Show search bar if in search mode
+	if m.searchMode {
+		searchStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(accentColor).
+			Padding(0, 1)
+		b.WriteString(searchStyle.Render("/ " + m.searchInput.View()))
+		b.WriteString("\n\n")
+	}
+
 	// Show running indicator if any tasks are running
 	hasRunning := len(m.runningTasks) > 0
 	if hasRunning {
@@ -965,9 +1341,14 @@ func (m Model) renderList() string {
 		b.WriteString("\n\n")
 	}
 
+
 	// Table or empty state
+	tasksToShow := m.getDisplayTasks()
 	if len(m.tasks) == 0 {
 		empty := emptyBoxStyle.Render("No tasks yet\n\nPress 'a' to add your first task")
+		b.WriteString(empty)
+	} else if m.searchMode && len(tasksToShow) == 0 && m.searchInput.Value() != "" {
+		empty := emptyBoxStyle.Render("No tasks match your search\n\nPress 'esc' to clear")
 		b.WriteString(empty)
 	} else {
 		b.WriteString(m.table.View())
@@ -990,7 +1371,10 @@ func (m Model) renderList() string {
 	if m.showHelp {
 		b.WriteString(m.help.FullHelpView(keys.FullHelp()))
 	} else {
-		b.WriteString(m.help.ShortHelpView(keys.ShortHelp()))
+		helpText := m.help.ShortHelpView(keys.ShortHelp())
+		// Add search hint
+		helpText += "  " + helpKeyStyle.Render("/") + helpDescStyle.Render(" search")
+		b.WriteString(helpText)
 	}
 
 	return b.String()
@@ -1111,11 +1495,17 @@ func (m Model) renderForm(title string) string {
 	b.WriteString(logoStyle.Render(title))
 	b.WriteString("\n\n")
 
+	// Show cron helper overlay if active
+	if m.showCronHelper {
+		b.WriteString(m.renderCronHelper())
+		return b.String()
+	}
+
 	labels := []string{"Name", "Prompt", "Cron Expression", "Working Directory", "Discord Webhook (optional)"}
 	hints := []string{
 		"",
 		"(multi-line, tab to next field)",
-		"Format: sec min hour day month weekday",
+		"Press ? for presets",
 		"",
 		"",
 	}
@@ -1125,6 +1515,24 @@ func (m Model) renderForm(title string) string {
 		if hints[i] != "" {
 			b.WriteString("  ")
 			b.WriteString(subtitleStyle.Render(hints[i]))
+		}
+
+		// Show validation status indicator
+		if errMsg, hasErr := m.formValidation[i]; hasErr {
+			b.WriteString("  ")
+			b.WriteString(errorMsgStyle.Render("✗ " + errMsg))
+		} else if i != fieldDiscordWebhook { // Don't show checkmark for optional field
+			// Show checkmark if field has content and is valid
+			var hasContent bool
+			if i == fieldPrompt {
+				hasContent = strings.TrimSpace(m.promptInput.Value()) != ""
+			} else {
+				hasContent = strings.TrimSpace(m.formInputs[i].Value()) != ""
+			}
+			if hasContent {
+				b.WriteString("  ")
+				b.WriteString(successMsgStyle.Render("✓"))
+			}
 		}
 		b.WriteString("\n")
 
@@ -1162,9 +1570,51 @@ func (m Model) renderForm(title string) string {
 
 	// Cron examples
 	b.WriteString("\n\n")
-	b.WriteString(subtitleStyle.Render("Cron examples: "))
-	b.WriteString(dimRowStyle.Render("0 * * * * * (every min) • 0 0 9 * * * (9am daily) • 0 0 */2 * * * (every 2h)"))
+	b.WriteString(subtitleStyle.Render("Cron format: "))
+	b.WriteString(dimRowStyle.Render("sec min hour day month weekday"))
 
+	return b.String()
+}
+
+func (m Model) renderCronHelper() string {
+	var b strings.Builder
+
+	helperStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(accentColor).
+		Padding(1, 2)
+
+	var content strings.Builder
+	content.WriteString(inputLabelStyle.Render("Select a schedule preset"))
+	content.WriteString("\n\n")
+
+	for i, preset := range m.cronPresets {
+		if i == m.cronHelperIndex {
+			// Highlighted item
+			content.WriteString(lipgloss.NewStyle().
+				Background(primaryColor).
+				Foreground(lipgloss.Color("#FFFFFF")).
+				Bold(true).
+				Padding(0, 1).
+				Render(preset.name))
+		} else {
+			content.WriteString("  ")
+			content.WriteString(preset.name)
+		}
+		content.WriteString("\n")
+		content.WriteString(subtitleStyle.Render("  " + preset.expr + " - " + preset.desc))
+		content.WriteString("\n")
+	}
+
+	content.WriteString("\n")
+	content.WriteString(helpKeyStyle.Render("↑/↓"))
+	content.WriteString(helpDescStyle.Render(" navigate • "))
+	content.WriteString(helpKeyStyle.Render("enter"))
+	content.WriteString(helpDescStyle.Render(" select • "))
+	content.WriteString(helpKeyStyle.Render("esc"))
+	content.WriteString(helpDescStyle.Render(" cancel"))
+
+	b.WriteString(helperStyle.Render(content.String()))
 	return b.String()
 }
 
