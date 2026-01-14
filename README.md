@@ -1,4 +1,4 @@
-<img width="906" height="660" alt="Screenshot 2026-01-14 at 18 26 52" src="https://github.com/user-attachments/assets/b687a2e8-45da-4720-87b6-cf8d38cc69ef" />
+<img width="978" height="603" alt="Screenshot 2026-01-14 at 21 16 37" src="https://github.com/user-attachments/assets/7eefd16d-1d18-4150-8777-cf96d933982a" />
 
 # Claude Tasks
 
