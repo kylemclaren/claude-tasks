@@ -274,30 +274,30 @@ func replaceExecutable(oldPath, newPath string) error {
 	// Copy new executable to the target path
 	newFile, err := os.Open(newPath)
 	if err != nil {
-		// Restore backup
-		os.Rename(backupPath, oldPath)
+		// Restore backup (best-effort)
+		_ = os.Rename(backupPath, oldPath)
 		return err
 	}
 	defer newFile.Close()
 
 	destFile, err := os.OpenFile(oldPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 	if err != nil {
-		// Restore backup
-		os.Rename(backupPath, oldPath)
+		// Restore backup (best-effort)
+		_ = os.Rename(backupPath, oldPath)
 		return err
 	}
 	defer destFile.Close()
 
 	if _, err := io.Copy(destFile, newFile); err != nil {
 		destFile.Close()
-		// Restore backup
-		os.Remove(oldPath)
-		os.Rename(backupPath, oldPath)
+		// Restore backup (best-effort)
+		_ = os.Remove(oldPath)
+		_ = os.Rename(backupPath, oldPath)
 		return err
 	}
 
-	// Remove backup
-	os.Remove(backupPath)
+	// Remove backup (best-effort cleanup)
+	_ = os.Remove(backupPath)
 
 	return nil
 }
