@@ -105,13 +105,31 @@ CLAUDE_TASKS_DATA=/custom/path ./claude-tasks
 
 ## Example Tasks
 
-```
-Daily Code Review     - "Review uncommitted changes and flag issues"
-Morning Standup Prep  - "Summarize last 24h from git log"
-Dependency Audit      - "Check for outdated/vulnerable dependencies"
-TODO Hunter           - "Find TODO/FIXME/HACK comments"
-Security Scan         - "Audit for injection, XSS, hardcoded secrets"
-```
+### Development Workflow
+
+| Task | Schedule | Prompt |
+|------|----------|--------|
+| Daily Code Review | 6pm daily | Review any uncommitted changes in this repo. Summarize what was worked on and flag any potential issues. |
+| Morning Standup Prep | 8:30am weekdays | Analyze git log from the last 24 hours and prepare a brief standup summary of what was accomplished. |
+| Dependency Audit | 9am Mondays | Check go.mod for outdated dependencies and security vulnerabilities. Suggest updates if needed. |
+| Security Scan | 9am Sundays | Audit code for common security issues: SQL injection, XSS, hardcoded secrets, unsafe operations. |
+| Weekly Summary | 5pm Fridays | Generate a weekly development summary from git history. Include stats, highlights, and next steps. |
+
+### Data & Analysis
+
+| Task | Schedule | Prompt |
+|------|----------|--------|
+| HN Sentiment Analysis | 9am daily | Pull the top 10 HackerNews stories and run sentiment analysis on all the comments using python and then list the posts with their analysis |
+| GitHub Trending | 9am Mondays | Pull trending GitHub repos from the last week and summarize what each one does, categorizing by language/domain |
+| Gold/Silver Prices | 9am daily | Fetch silver/gold prices and correlate with recent news sentiment |
+
+### More Ideas
+
+- **Changelog Generator** - Summarize commits since last tag into a changelog entry
+- **Test Coverage Check** - Run tests and report on coverage changes
+- **Documentation Sync** - Find code changes that need documentation updates
+- **Performance Scout** - Profile the app and suggest optimization opportunities
+- **API Health Check** - Monitor external API status pages and summarize incidents
 
 ## Tech Stack
 
