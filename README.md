@@ -5,7 +5,7 @@
 A TUI scheduler for running Claude tasks on a cron schedule. Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea).
 
 ![Claude Tasks TUI](https://img.shields.io/badge/TUI-BubbleTea-ff69b4)
-![Go](https://img.shields.io/badge/Go-1.21+-00ADD8)
+![Go](https://img.shields.io/badge/Go-1.24+-00ADD8)
 
 ## Features
 
@@ -43,7 +43,7 @@ go build -o claude-tasks ./cmd/claude-tasks
 
 ### Requirements
 
-- Go 1.21+
+- Go 1.24+
 - [Claude CLI](https://github.com/anthropics/claude-code) installed and authenticated
 - SQLite (bundled via go-sqlite3)
 

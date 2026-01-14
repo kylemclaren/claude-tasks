@@ -5,9 +5,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/sprite/claude-tasks/internal/db"
-	"github.com/sprite/claude-tasks/internal/scheduler"
-	"github.com/sprite/claude-tasks/internal/tui"
+	"github.com/kylemclaren/claude-tasks/internal/db"
+	"github.com/kylemclaren/claude-tasks/internal/scheduler"
+	"github.com/kylemclaren/claude-tasks/internal/tui"
 )
 
 func main() {

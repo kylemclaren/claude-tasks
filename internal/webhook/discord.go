@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sprite/claude-tasks/internal/db"
+	"github.com/kylemclaren/claude-tasks/internal/db"
 )
 
 // Discord handles Discord webhook notifications

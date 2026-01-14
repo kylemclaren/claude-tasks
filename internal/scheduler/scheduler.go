@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
-	"github.com/sprite/claude-tasks/internal/db"
-	"github.com/sprite/claude-tasks/internal/executor"
+	"github.com/kylemclaren/claude-tasks/internal/db"
+	"github.com/kylemclaren/claude-tasks/internal/executor"
 )
 
 // Scheduler manages cron jobs for tasks

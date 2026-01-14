@@ -17,9 +17,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/sprite/claude-tasks/internal/db"
-	"github.com/sprite/claude-tasks/internal/scheduler"
-	"github.com/sprite/claude-tasks/internal/usage"
+	"github.com/kylemclaren/claude-tasks/internal/db"
+	"github.com/kylemclaren/claude-tasks/internal/scheduler"
+	"github.com/kylemclaren/claude-tasks/internal/usage"
 )
 
 // View represents the current view

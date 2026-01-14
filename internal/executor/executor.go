@@ -7,9 +7,9 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/sprite/claude-tasks/internal/db"
-	"github.com/sprite/claude-tasks/internal/usage"
-	"github.com/sprite/claude-tasks/internal/webhook"
+	"github.com/kylemclaren/claude-tasks/internal/db"
+	"github.com/kylemclaren/claude-tasks/internal/usage"
+	"github.com/kylemclaren/claude-tasks/internal/webhook"
 )
 
 // Executor runs Claude CLI tasks
