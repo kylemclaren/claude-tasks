@@ -18,6 +18,7 @@ type Scheduler struct {
 	jobs     map[int64]cron.EntryID
 	mu       sync.RWMutex
 	running  bool
+	stopSync chan struct{}
 }
 
 // New creates a new scheduler
@@ -27,6 +28,7 @@ func New(database *db.DB) *Scheduler {
 		db:       database,
 		executor: executor.New(database),
 		jobs:     make(map[int64]cron.EntryID),
+		stopSync: make(chan struct{}),
 	}
 }
 
@@ -56,21 +58,28 @@ func (s *Scheduler) Start() error {
 
 	s.cron.Start()
 	s.running = true
+
+	// Start background sync to pick up DB changes
+	go s.syncLoop()
+
 	return nil
 }
 
 // Stop stops the scheduler
 func (s *Scheduler) Stop() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if !s.running {
+		s.mu.Unlock()
 		return
 	}
+	s.running = false
+	s.mu.Unlock()
+
+	// Stop sync loop
+	close(s.stopSync)
 
 	ctx := s.cron.Stop()
 	<-ctx.Done()
-	s.running = false
 }
 
 // AddTask schedules a new task
@@ -180,4 +189,62 @@ func (s *Scheduler) RunTaskNow(taskID int64) error {
 	}()
 
 	return nil
+}
+
+// syncLoop periodically syncs tasks from DB
+func (s *Scheduler) syncLoop() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stopSync:
+			return
+		case <-ticker.C:
+			s.SyncTasks()
+		}
+	}
+}
+
+// SyncTasks reloads tasks from DB and updates scheduler
+func (s *Scheduler) SyncTasks() {
+	tasks, err := s.db.ListTasks()
+	if err != nil {
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Build set of current task IDs in DB
+	dbTaskIDs := make(map[int64]bool)
+	for _, task := range tasks {
+		dbTaskIDs[task.ID] = true
+	}
+
+	// Remove jobs for tasks that no longer exist
+	for taskID := range s.jobs {
+		if !dbTaskIDs[taskID] {
+			if entryID, ok := s.jobs[taskID]; ok {
+				s.cron.Remove(entryID)
+				delete(s.jobs, taskID)
+			}
+		}
+	}
+
+	// Add/update tasks
+	for _, task := range tasks {
+		_, scheduled := s.jobs[task.ID]
+
+		if task.Enabled && !scheduled {
+			// Task should be scheduled but isn't
+			_ = s.scheduleTaskLocked(task)
+		} else if !task.Enabled && scheduled {
+			// Task shouldn't be scheduled but is
+			if entryID, ok := s.jobs[task.ID]; ok {
+				s.cron.Remove(entryID)
+				delete(s.jobs, task.ID)
+			}
+		}
+	}
 }
