@@ -12,23 +12,25 @@ import (
 
 // Scheduler manages cron jobs for tasks
 type Scheduler struct {
-	cron     *cron.Cron
-	db       *db.DB
-	executor *executor.Executor
-	jobs     map[int64]cron.EntryID
-	mu       sync.RWMutex
-	running  bool
-	stopSync chan struct{}
+	cron      *cron.Cron
+	db        *db.DB
+	executor  *executor.Executor
+	jobs      map[int64]cron.EntryID
+	cronExprs map[int64]string // Track cron expressions to detect changes
+	mu        sync.RWMutex
+	running   bool
+	stopSync  chan struct{}
 }
 
 // New creates a new scheduler
 func New(database *db.DB) *Scheduler {
 	return &Scheduler{
-		cron:     cron.New(cron.WithSeconds()),
-		db:       database,
-		executor: executor.New(database),
-		jobs:     make(map[int64]cron.EntryID),
-		stopSync: make(chan struct{}),
+		cron:      cron.New(cron.WithSeconds()),
+		db:        database,
+		executor:  executor.New(database),
+		jobs:      make(map[int64]cron.EntryID),
+		cronExprs: make(map[int64]string),
+		stopSync:  make(chan struct{}),
 	}
 }
 
@@ -146,26 +148,38 @@ func (s *Scheduler) scheduleTaskLocked(task *db.Task) error {
 		delete(s.jobs, task.ID)
 	}
 
-	// Create a copy of task for the closure
-	taskCopy := *task
+	// Create a copy of task ID for the closure
+	taskID := task.ID
 
 	entryID, err := s.cron.AddFunc(task.CronExpr, func() {
 		// Get fresh task data from DB
-		freshTask, err := s.db.GetTask(taskCopy.ID)
+		freshTask, err := s.db.GetTask(taskID)
 		if err != nil {
-			fmt.Printf("Failed to get task %d: %v\n", taskCopy.ID, err)
+			fmt.Printf("Failed to get task %d: %v\n", taskID, err)
 			return
 		}
 		if !freshTask.Enabled {
 			return
 		}
 		s.executor.ExecuteAsync(freshTask)
+
+		// Update next run time in DB after execution
+		s.mu.RLock()
+		if eid, ok := s.jobs[taskID]; ok {
+			entry := s.cron.Entry(eid)
+			if !entry.Next.IsZero() {
+				freshTask.NextRunAt = &entry.Next
+				_ = s.db.UpdateTask(freshTask)
+			}
+		}
+		s.mu.RUnlock()
 	})
 	if err != nil {
 		return fmt.Errorf("invalid cron expression: %w", err)
 	}
 
 	s.jobs[task.ID] = entryID
+	s.cronExprs[task.ID] = task.CronExpr
 
 	// Update next run time in DB
 	entry := s.cron.Entry(entryID)
@@ -228,6 +242,7 @@ func (s *Scheduler) SyncTasks() {
 			if entryID, ok := s.jobs[taskID]; ok {
 				s.cron.Remove(entryID)
 				delete(s.jobs, taskID)
+				delete(s.cronExprs, taskID)
 			}
 		}
 	}
@@ -235,6 +250,7 @@ func (s *Scheduler) SyncTasks() {
 	// Add/update tasks
 	for _, task := range tasks {
 		_, scheduled := s.jobs[task.ID]
+		oldCronExpr := s.cronExprs[task.ID]
 
 		if task.Enabled && !scheduled {
 			// Task should be scheduled but isn't
@@ -244,7 +260,11 @@ func (s *Scheduler) SyncTasks() {
 			if entryID, ok := s.jobs[task.ID]; ok {
 				s.cron.Remove(entryID)
 				delete(s.jobs, task.ID)
+				delete(s.cronExprs, task.ID)
 			}
+		} else if task.Enabled && scheduled && task.CronExpr != oldCronExpr {
+			// Cron expression changed, reschedule
+			_ = s.scheduleTaskLocked(task)
 		}
 	}
 }
