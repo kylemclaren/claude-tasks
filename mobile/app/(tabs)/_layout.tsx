@@ -4,7 +4,9 @@ import { useRef, useEffect } from 'react';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useTheme } from '../../lib/ThemeContext';
 import { useUsage } from '../../hooks/useUsage';
+import { useTasks } from '../../hooks/useTasks';
 import { UsageBatteryIndicator } from '../../components/UsageBatteryIndicator';
+import { RunningTasksIndicator } from '../../components/RunningTasksIndicator';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 
 const useGlass = Platform.OS === 'ios' && typeof isLiquidGlassAvailable === 'function' && isLiquidGlassAvailable();
@@ -34,8 +36,14 @@ function SettingsIcon({ focused, color }: { focused: boolean; color: string }) {
 
 function TasksHeaderRight() {
   const { data: usage } = useUsage();
-  if (!usage) return null;
-  return <UsageBatteryIndicator usage={usage} />;
+  const { data: tasksData } = useTasks();
+
+  return (
+    <View style={styles.headerRight}>
+      {tasksData?.tasks && <RunningTasksIndicator tasks={tasksData.tasks} />}
+      {usage && <UsageBatteryIndicator usage={usage} />}
+    </View>
+  );
 }
 
 function FloatingTabBar({ state, descriptors, navigation, colors }: BottomTabBarProps & { colors: any }) {
@@ -212,6 +220,10 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   floatingBarContainer: {
     position: 'absolute',
     bottom: 30,

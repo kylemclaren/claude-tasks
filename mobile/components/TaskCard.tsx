@@ -8,6 +8,7 @@ import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/ToastContext';
 import { getStatusColor, borderRadius, spacing } from '../lib/theme';
 import { cronToHuman } from '../lib/cronToHuman';
+import { Spinner } from './Spinner';
 import type { Task } from '../lib/types';
 
 interface Props {
@@ -149,7 +150,13 @@ export function TaskCard({ task }: Props) {
   const content = (
     <>
       <View style={styles.header}>
-        <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+        {task.last_run_status === 'running' ? (
+          <View style={styles.spinnerContainer}>
+            <Spinner size={12} color={statusColor} strokeWidth={2} />
+          </View>
+        ) : (
+          <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+        )}
         <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>
           {task.name}
         </Text>
@@ -240,6 +247,13 @@ const styles = StyleSheet.create({
     height: 10,
     borderRadius: 5,
     marginRight: spacing.sm,
+  },
+  spinnerContainer: {
+    width: 12,
+    height: 12,
+    marginRight: spacing.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   name: {
     flex: 1,
