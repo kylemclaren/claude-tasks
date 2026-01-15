@@ -1,16 +1,13 @@
 import { useState, useMemo } from 'react';
 import { View, FlatList, RefreshControl, StyleSheet, Pressable, Text } from 'react-native';
 import { useTasks } from '../../hooks/useTasks';
-import { useUsage } from '../../hooks/useUsage';
 import { TaskCard } from '../../components/TaskCard';
-import { UsageBar } from '../../components/UsageBar';
 import { SearchFilterBar } from '../../components/SearchFilterBar';
 import { useTheme } from '../../lib/ThemeContext';
 import { borderRadius } from '../../lib/theme';
 
 export default function TasksScreen() {
   const { data, isLoading, refetch, error } = useTasks();
-  const { data: usage } = useUsage();
   const { colors } = useTheme();
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -51,14 +48,11 @@ export default function TasksScreen() {
         keyExtractor={(item) => item.id.toString()}
         renderItem={({ item }) => <TaskCard task={item} />}
         ListHeaderComponent={
-          <>
-            {usage && <UsageBar usage={usage} />}
-            <SearchFilterBar
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Search tasks..."
-            />
-          </>
+          <SearchFilterBar
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Search tasks..."
+          />
         }
         refreshControl={
           <RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={colors.textMuted} />

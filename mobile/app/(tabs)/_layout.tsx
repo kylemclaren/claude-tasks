@@ -3,6 +3,8 @@ import { View, StyleSheet, Platform, Pressable, Text, Animated } from 'react-nat
 import { useRef, useEffect } from 'react';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useTheme } from '../../lib/ThemeContext';
+import { useUsage } from '../../hooks/useUsage';
+import { UsageBatteryIndicator } from '../../components/UsageBatteryIndicator';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 
 const useGlass = Platform.OS === 'ios' && typeof isLiquidGlassAvailable === 'function' && isLiquidGlassAvailable();
@@ -28,6 +30,12 @@ function SettingsIcon({ focused, color }: { focused: boolean; color: string }) {
       </View>
     </View>
   );
+}
+
+function TasksHeaderRight() {
+  const { data: usage } = useUsage();
+  if (!usage) return null;
+  return <UsageBatteryIndicator usage={usage} />;
 }
 
 function FloatingTabBar({ state, descriptors, navigation, colors }: BottomTabBarProps & { colors: any }) {
@@ -184,7 +192,10 @@ export default function TabLayout() {
     >
       <Tabs.Screen
         name="index"
-        options={{ title: 'Tasks' }}
+        options={{
+          title: 'Tasks',
+          headerRight: () => <TasksHeaderRight />,
+        }}
       />
       <Tabs.Screen
         name="add"
