@@ -153,7 +153,7 @@ func runServer() error {
 	// Parse flags for serve command
 	serveCmd := flag.NewFlagSet("serve", flag.ExitOnError)
 	port := serveCmd.Int("port", 8080, "HTTP server port")
-	serveCmd.Parse(os.Args[2:])
+	_ = serveCmd.Parse(os.Args[2:])
 
 	dataDir := os.Getenv("CLAUDE_TASKS_DATA")
 	if dataDir == "" {

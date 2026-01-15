@@ -317,9 +317,7 @@ func (s *Server) UpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.jsonResponse(w, http.StatusOK, SettingsResponse{
-		UsageThreshold: req.UsageThreshold,
-	})
+	s.jsonResponse(w, http.StatusOK, SettingsResponse(req))
 }
 
 // GetUsage handles GET /api/v1/usage
@@ -407,7 +405,7 @@ func (s *Server) validateTaskRequest(req *TaskRequest) error {
 func (s *Server) jsonResponse(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
 }
 
 func (s *Server) errorResponse(w http.ResponseWriter, status int, message string, err error) {
