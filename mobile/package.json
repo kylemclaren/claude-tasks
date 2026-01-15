@@ -12,6 +12,7 @@
     "@tanstack/react-query": "^5.90.17",
     "expo": "~54.0.31",
     "expo-constants": "~18.0.13",
+    "expo-glass-effect": "~0.1.8",
     "expo-linking": "~8.0.11",
     "expo-router": "~6.0.21",
     "expo-secure-store": "~15.0.8",

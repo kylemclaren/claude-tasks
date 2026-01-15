@@ -1,6 +1,9 @@
-import { View, Text, ScrollView, Pressable, StyleSheet, Alert, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, Alert, RefreshControl, Platform } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
+import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { useTask, useTaskRuns, useToggleTask, useRunTask, useDeleteTask } from '../../hooks/useTasks';
+
+const useGlass = Platform.OS === 'ios' && isGlassEffectAPIAvailable();
 
 export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -56,6 +59,9 @@ export default function TaskDetailScreen() {
     return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
   };
 
+  const CardWrapper = useGlass ? GlassView : View;
+  const sectionStyle = useGlass ? styles.glassSection : styles.section;
+
   if (taskLoading) {
     return (
       <View style={styles.centered}>
@@ -82,13 +88,14 @@ export default function TaskDetailScreen() {
             refetchTask();
             refetchRuns();
           }}
+          tintColor="#6b7280"
         />
       }
     >
-      <View style={styles.section}>
+      <CardWrapper style={sectionStyle} {...(useGlass && { glassEffectStyle: 'regular' })}>
         <View style={styles.header}>
           <Text style={styles.title}>{task.name}</Text>
-          <View style={[styles.badge, { backgroundColor: task.enabled ? '#dcfce7' : '#f3f4f6' }]}>
+          <View style={[styles.badge, { backgroundColor: task.enabled ? 'rgba(220, 252, 231, 0.8)' : 'rgba(243, 244, 246, 0.8)' }]}>
             <Text style={[styles.badgeText, { color: task.enabled ? '#166534' : '#6b7280' }]}>
               {task.enabled ? 'Enabled' : 'Disabled'}
             </Text>
@@ -116,7 +123,7 @@ export default function TaskDetailScreen() {
             <Text style={styles.value}>{formatDate(task.next_run_at)}</Text>
           </View>
         )}
-      </View>
+      </CardWrapper>
 
       <View style={styles.actions}>
         <Pressable
@@ -143,12 +150,12 @@ export default function TaskDetailScreen() {
         </Pressable>
       </View>
 
-      <View style={styles.section}>
+      <CardWrapper style={sectionStyle} {...(useGlass && { glassEffectStyle: 'regular' })}>
         <Text style={styles.sectionTitle}>Recent Runs</Text>
 
         {runsData?.runs && runsData.runs.length > 0 ? (
-          runsData.runs.map((run) => (
-            <View key={run.id} style={styles.runItem}>
+          runsData.runs.map((run, index) => (
+            <View key={run.id} style={[styles.runItem, index === runsData.runs.length - 1 && styles.runItemLast]}>
               <View style={styles.runHeader}>
                 <View style={[styles.statusDot, { backgroundColor: getStatusColor(run.status) }]} />
                 <Text style={styles.runStatus}>{run.status}</Text>
@@ -170,7 +177,7 @@ export default function TaskDetailScreen() {
         ) : (
           <Text style={styles.noRuns}>No runs yet</Text>
         )}
-      </View>
+      </CardWrapper>
     </ScrollView>
   );
 }
@@ -178,28 +185,36 @@ export default function TaskDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#e8e4df',
   },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#e8e4df',
   },
   errorText: {
     fontSize: 16,
     color: '#ef4444',
   },
-  section: {
-    backgroundColor: '#fff',
+  glassSection: {
     marginHorizontal: 16,
     marginTop: 16,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  section: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    marginHorizontal: 16,
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowRadius: 8,
+    elevation: 3,
   },
   header: {
     flexDirection: 'row',
@@ -249,11 +264,11 @@ const styles = StyleSheet.create({
   actionButton: {
     flex: 1,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: 'center',
   },
   toggleButton: {
-    backgroundColor: '#f3f4f6',
+    backgroundColor: 'rgba(243, 244, 246, 0.9)',
   },
   actionButtonText: {
     fontSize: 14,
@@ -269,7 +284,7 @@ const styles = StyleSheet.create({
     color: '#fff',
   },
   deleteButton: {
-    backgroundColor: '#fef2f2',
+    backgroundColor: 'rgba(254, 242, 242, 0.9)',
   },
   deleteButtonText: {
     fontSize: 14,
@@ -284,9 +299,14 @@ const styles = StyleSheet.create({
   },
   runItem: {
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: 'rgba(243, 244, 246, 0.6)',
     paddingBottom: 12,
     marginBottom: 12,
+  },
+  runItemLast: {
+    borderBottomWidth: 0,
+    marginBottom: 0,
+    paddingBottom: 0,
   },
   runHeader: {
     flexDirection: 'row',
@@ -317,17 +337,17 @@ const styles = StyleSheet.create({
   runOutput: {
     fontSize: 12,
     color: '#374151',
-    backgroundColor: '#f9fafb',
+    backgroundColor: 'rgba(249, 250, 251, 0.6)',
     padding: 8,
-    borderRadius: 4,
+    borderRadius: 6,
     fontFamily: 'monospace',
   },
   runError: {
     fontSize: 12,
     color: '#ef4444',
-    backgroundColor: '#fef2f2',
+    backgroundColor: 'rgba(254, 242, 242, 0.6)',
     padding: 8,
-    borderRadius: 4,
+    borderRadius: 6,
   },
   noRuns: {
     fontSize: 14,

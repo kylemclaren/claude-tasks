@@ -1,9 +1,12 @@
-import { View, FlatList, RefreshControl, StyleSheet, Pressable, Text } from 'react-native';
+import { View, FlatList, RefreshControl, StyleSheet, Pressable, Text, Platform, ImageBackground } from 'react-native';
 import { Link } from 'expo-router';
+import { GlassContainer, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { useTasks } from '../../hooks/useTasks';
 import { useUsage } from '../../hooks/useUsage';
 import { TaskCard } from '../../components/TaskCard';
 import { UsageBar } from '../../components/UsageBar';
+
+const useGlass = Platform.OS === 'ios' && isGlassEffectAPIAvailable();
 
 export default function TasksScreen() {
   const { data, isLoading, refetch, error } = useTasks();
@@ -21,27 +24,39 @@ export default function TasksScreen() {
     );
   }
 
+  const ListWrapper = useGlass ? GlassContainer : View;
+
+  const listContent = (
+    <FlatList
+      data={data?.tasks ?? []}
+      keyExtractor={(item) => item.id.toString()}
+      renderItem={({ item }) => <TaskCard task={item} />}
+      ListHeaderComponent={usage ? <UsageBar usage={usage} /> : null}
+      refreshControl={
+        <RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor="#6b7280" />
+      }
+      ListEmptyComponent={
+        !isLoading ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyIcon}>&#128203;</Text>
+            <Text style={styles.emptyTitle}>No Tasks</Text>
+            <Text style={styles.emptyText}>Create your first task to get started</Text>
+          </View>
+        ) : null
+      }
+      contentContainerStyle={styles.list}
+    />
+  );
+
   return (
     <View style={styles.container}>
-      <FlatList
-        data={data?.tasks ?? []}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => <TaskCard task={item} />}
-        ListHeaderComponent={usage ? <UsageBar usage={usage} /> : null}
-        refreshControl={
-          <RefreshControl refreshing={isLoading} onRefresh={refetch} />
-        }
-        ListEmptyComponent={
-          !isLoading ? (
-            <View style={styles.empty}>
-              <Text style={styles.emptyIcon}>&#128203;</Text>
-              <Text style={styles.emptyTitle}>No Tasks</Text>
-              <Text style={styles.emptyText}>Create your first task to get started</Text>
-            </View>
-          ) : null
-        }
-        contentContainerStyle={styles.list}
-      />
+      {useGlass ? (
+        <ListWrapper style={styles.glassWrapper} spacing={20}>
+          {listContent}
+        </ListWrapper>
+      ) : (
+        listContent
+      )}
 
       <Link href="/task/new" asChild>
         <Pressable style={styles.fab}>
@@ -55,7 +70,10 @@ export default function TasksScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#e8e4df',
+  },
+  glassWrapper: {
+    flex: 1,
   },
   list: {
     paddingBottom: 100,
@@ -65,7 +83,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#e8e4df',
   },
   errorText: {
     fontSize: 18,
@@ -83,7 +101,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#2563eb',
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 12,
   },
   retryText: {
     color: '#fff',
@@ -119,9 +137,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
     elevation: 5,
   },
   fabText: {

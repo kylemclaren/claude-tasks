@@ -1,9 +1,12 @@
-import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
 import { useState, useEffect } from 'react';
+import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { useSettings, useUpdateSettings } from '../../hooks/useSettings';
 import { useUsage } from '../../hooks/useUsage';
 import { getApiBase, setApiBase } from '../../lib/api';
 import { UsageBar } from '../../components/UsageBar';
+
+const useGlass = Platform.OS === 'ios' && isGlassEffectAPIAvailable();
 
 export default function SettingsScreen() {
   const { data: settings, isLoading: settingsLoading } = useSettings();
@@ -43,11 +46,14 @@ export default function SettingsScreen() {
     }
   };
 
+  const CardWrapper = useGlass ? GlassView : View;
+  const sectionStyle = useGlass ? styles.glassSection : styles.section;
+
   return (
     <ScrollView style={styles.container}>
       {usage && <UsageBar usage={usage} />}
 
-      <View style={styles.section}>
+      <CardWrapper style={sectionStyle} {...(useGlass && { glassEffectStyle: 'regular' })}>
         <Text style={styles.sectionTitle}>Usage Threshold</Text>
         <Text style={styles.sectionDescription}>
           Tasks will be skipped when API usage exceeds this percentage
@@ -60,6 +66,7 @@ export default function SettingsScreen() {
             onChangeText={setThreshold}
             keyboardType="numeric"
             placeholder="80"
+            placeholderTextColor="#9ca3af"
           />
           <Text style={styles.suffix}>%</Text>
           <Pressable
@@ -70,9 +77,9 @@ export default function SettingsScreen() {
             <Text style={styles.buttonText}>Save</Text>
           </Pressable>
         </View>
-      </View>
+      </CardWrapper>
 
-      <View style={styles.section}>
+      <CardWrapper style={sectionStyle} {...(useGlass && { glassEffectStyle: 'regular' })}>
         <Text style={styles.sectionTitle}>API Server</Text>
         <Text style={styles.sectionDescription}>
           The Sprite URL for the Claude Tasks API
@@ -87,6 +94,7 @@ export default function SettingsScreen() {
               autoCapitalize="none"
               autoCorrect={false}
               placeholder="https://your-sprite.sprites.app"
+              placeholderTextColor="#9ca3af"
             />
             <Pressable style={styles.button} onPress={handleSaveApiUrl}>
               <Text style={styles.buttonText}>Save</Text>
@@ -100,19 +108,19 @@ export default function SettingsScreen() {
             <Text style={styles.editText}>Edit</Text>
           </Pressable>
         )}
-      </View>
+      </CardWrapper>
 
-      <View style={styles.section}>
+      <CardWrapper style={sectionStyle} {...(useGlass && { glassEffectStyle: 'regular' })}>
         <Text style={styles.sectionTitle}>About</Text>
         <View style={styles.aboutRow}>
           <Text style={styles.aboutLabel}>App Version</Text>
           <Text style={styles.aboutValue}>1.0.0</Text>
         </View>
-        <View style={styles.aboutRow}>
+        <View style={[styles.aboutRow, styles.aboutRowLast]}>
           <Text style={styles.aboutLabel}>Claude Tasks</Text>
           <Text style={styles.aboutValue}>Mobile Client</Text>
         </View>
-      </View>
+      </CardWrapper>
     </ScrollView>
   );
 }
@@ -120,19 +128,26 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#e8e4df',
   },
-  section: {
-    backgroundColor: '#fff',
+  glassSection: {
     marginHorizontal: 16,
     marginTop: 16,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  section: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    marginHorizontal: 16,
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowRadius: 8,
+    elevation: 3,
   },
   sectionTitle: {
     fontSize: 16,
@@ -153,12 +168,13 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
+    borderColor: 'rgba(209, 213, 219, 0.8)',
+    borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    color: '#111827',
   },
   urlInput: {
     fontSize: 14,
@@ -172,7 +188,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#2563eb',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 8,
+    borderRadius: 10,
   },
   buttonDisabled: {
     backgroundColor: '#9ca3af',
@@ -186,9 +202,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#f3f4f6',
+    backgroundColor: 'rgba(243, 244, 246, 0.6)',
     padding: 12,
-    borderRadius: 8,
+    borderRadius: 10,
   },
   urlText: {
     flex: 1,
@@ -206,7 +222,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
+    borderBottomColor: 'rgba(243, 244, 246, 0.6)',
+  },
+  aboutRowLast: {
+    borderBottomWidth: 0,
   },
   aboutLabel: {
     fontSize: 14,

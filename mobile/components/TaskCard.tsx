@@ -1,11 +1,14 @@
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
 import { Link } from 'expo-router';
+import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import { useToggleTask, useRunTask } from '../hooks/useTasks';
 import type { Task } from '../lib/types';
 
 interface Props {
   task: Task;
 }
+
+const useGlass = Platform.OS === 'ios' && isGlassEffectAPIAvailable();
 
 export function TaskCard({ task }: Props) {
   const toggleMutation = useToggleTask();
@@ -44,67 +47,85 @@ export function TaskCard({ task }: Props) {
     return diff > 0 ? `in ${days}d` : `${days}d ago`;
   };
 
+  const CardWrapper = useGlass ? GlassView : View;
+  const cardStyle = useGlass ? styles.glassCard : styles.card;
+
+  const content = (
+    <>
+      <View style={styles.header}>
+        <View style={[styles.statusDot, { backgroundColor: getStatusColor() }]} />
+        <Text style={styles.name} numberOfLines={1}>
+          {task.name}
+        </Text>
+        <View style={[styles.badge, { backgroundColor: task.enabled ? 'rgba(220, 252, 231, 0.8)' : 'rgba(243, 244, 246, 0.8)' }]}>
+          <Text style={[styles.badgeText, { color: task.enabled ? '#166534' : '#6b7280' }]}>
+            {task.enabled ? 'Enabled' : 'Disabled'}
+          </Text>
+        </View>
+      </View>
+
+      <Text style={styles.cron}>{task.cron_expr}</Text>
+
+      <View style={styles.footer}>
+        <Text style={styles.nextRun}>
+          {task.next_run_at ? `Next: ${formatRelativeTime(task.next_run_at)}` : 'Not scheduled'}
+        </Text>
+
+        <View style={styles.actions}>
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation();
+              toggleMutation.mutate(task.id);
+            }}
+            style={styles.actionButton}
+          >
+            <Text style={styles.actionText}>{task.enabled ? 'Disable' : 'Enable'}</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation();
+              runMutation.mutate(task.id);
+            }}
+            style={[styles.actionButton, styles.runButton]}
+          >
+            <Text style={[styles.actionText, styles.runText]}>Run</Text>
+          </Pressable>
+        </View>
+      </View>
+    </>
+  );
+
   return (
     <Link href={`/task/${task.id}`} asChild>
-      <Pressable style={styles.card}>
-        <View style={styles.header}>
-          <View style={[styles.statusDot, { backgroundColor: getStatusColor() }]} />
-          <Text style={styles.name} numberOfLines={1}>
-            {task.name}
-          </Text>
-          <View style={[styles.badge, { backgroundColor: task.enabled ? '#dcfce7' : '#f3f4f6' }]}>
-            <Text style={[styles.badgeText, { color: task.enabled ? '#166534' : '#6b7280' }]}>
-              {task.enabled ? 'Enabled' : 'Disabled'}
-            </Text>
-          </View>
-        </View>
-
-        <Text style={styles.cron}>{task.cron_expr}</Text>
-
-        <View style={styles.footer}>
-          <Text style={styles.nextRun}>
-            {task.next_run_at ? `Next: ${formatRelativeTime(task.next_run_at)}` : 'Not scheduled'}
-          </Text>
-
-          <View style={styles.actions}>
-            <Pressable
-              onPress={(e) => {
-                e.stopPropagation();
-                toggleMutation.mutate(task.id);
-              }}
-              style={styles.actionButton}
-            >
-              <Text style={styles.actionText}>{task.enabled ? 'Disable' : 'Enable'}</Text>
-            </Pressable>
-
-            <Pressable
-              onPress={(e) => {
-                e.stopPropagation();
-                runMutation.mutate(task.id);
-              }}
-              style={[styles.actionButton, styles.runButton]}
-            >
-              <Text style={[styles.actionText, styles.runText]}>Run</Text>
-            </Pressable>
-          </View>
-        </View>
+      <Pressable>
+        <CardWrapper style={cardStyle} {...(useGlass && { glassEffectStyle: 'regular' })}>
+          {content}
+        </CardWrapper>
       </Pressable>
     </Link>
   );
 }
 
 const styles = StyleSheet.create({
+  glassCard: {
+    borderRadius: 16,
+    padding: 16,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    overflow: 'hidden',
+  },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 16,
     padding: 16,
     marginHorizontal: 16,
     marginVertical: 8,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowRadius: 8,
+    elevation: 3,
   },
   header: {
     flexDirection: 'row',
@@ -154,8 +175,8 @@ const styles = StyleSheet.create({
   actionButton: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
+    backgroundColor: 'rgba(243, 244, 246, 0.8)',
   },
   actionText: {
     fontSize: 12,
@@ -163,7 +184,7 @@ const styles = StyleSheet.create({
     color: '#374151',
   },
   runButton: {
-    backgroundColor: '#dbeafe',
+    backgroundColor: 'rgba(219, 234, 254, 0.8)',
   },
   runText: {
     color: '#1d4ed8',

@@ -1,9 +1,12 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
+import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
 import type { Usage } from '../lib/types';
 
 interface Props {
   usage: Usage;
 }
+
+const useGlass = Platform.OS === 'ios' && isGlassEffectAPIAvailable();
 
 export function UsageBar({ usage }: Props) {
   const maxUtilization = Math.max(
@@ -31,8 +34,11 @@ export function UsageBar({ usage }: Props) {
     return `${minutes}m`;
   };
 
+  const CardWrapper = useGlass ? GlassView : View;
+  const containerStyle = useGlass ? styles.glassContainer : styles.container;
+
   return (
-    <View style={styles.container}>
+    <CardWrapper style={containerStyle} {...(useGlass && { glassEffectStyle: 'regular' })}>
       <View style={styles.header}>
         <Text style={styles.title}>API Usage</Text>
         <Text style={[styles.percentage, { color: getColor(maxUtilization) }]}>
@@ -60,22 +66,29 @@ export function UsageBar({ usage }: Props) {
           7d: {Math.round(usage.seven_day.utilization)}%
         </Text>
       </View>
-    </View>
+    </CardWrapper>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    backgroundColor: '#fff',
+  glassContainer: {
     padding: 16,
     marginHorizontal: 16,
     marginTop: 16,
-    borderRadius: 12,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  container: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    padding: 16,
+    marginHorizontal: 16,
+    marginTop: 16,
+    borderRadius: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowRadius: 8,
+    elevation: 3,
   },
   header: {
     flexDirection: 'row',
@@ -94,7 +107,7 @@ const styles = StyleSheet.create({
   },
   barContainer: {
     height: 8,
-    backgroundColor: '#e5e7eb',
+    backgroundColor: 'rgba(229, 231, 235, 0.6)',
     borderRadius: 4,
     overflow: 'hidden',
     marginBottom: 8,
