@@ -74,6 +74,13 @@ function RootLayoutContent() {
               presentation: 'modal',
             }}
           />
+          <Stack.Screen
+            name="run/[id]"
+            options={{
+              title: 'Run Output',
+              headerBackTitle: 'Back',
+            }}
+          />
         </Stack>
         {showSplash && <SplashScreen onAnimationComplete={handleSplashComplete} />}
       </View>

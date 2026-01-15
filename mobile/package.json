@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.17",
+    "react-native-markdown-display": "^7.0.2",
     "expo": "~54.0.31",
     "expo-constants": "~18.0.13",
     "expo-glass-effect": "~0.1.8",

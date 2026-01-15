@@ -1,4 +1,4 @@
-import { View, Text, ScrollView, Pressable, StyleSheet, Alert, RefreshControl, Platform } from 'react-native';
+import { View, Text, ScrollView, Pressable, StyleSheet, Alert, RefreshControl, Platform, TouchableOpacity } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useTask, useTaskRuns, useToggleTask, useRunTask, useDeleteTask } from '../../hooks/useTasks';
@@ -175,24 +175,46 @@ export default function TaskDetailScreen() {
 
         {runsData?.runs && runsData.runs.length > 0 ? (
           runsData.runs.map((run, index) => (
-            <View key={run.id} style={[styles.runItem, { borderBottomColor: colors.border }, index === runsData.runs.length - 1 && styles.runItemLast]}>
+            <TouchableOpacity
+              key={run.id}
+              activeOpacity={0.7}
+              onPress={() => {
+                router.push({
+                  pathname: '/run/[id]',
+                  params: {
+                    id: run.id.toString(),
+                    taskName: task.name,
+                    status: run.status,
+                    output: run.output,
+                    error: run.error,
+                    started_at: run.started_at,
+                    ended_at: run.ended_at,
+                    duration_ms: run.duration_ms?.toString(),
+                  },
+                });
+              }}
+              style={[styles.runItem, { borderBottomColor: colors.border }, index === runsData.runs.length - 1 && styles.runItemLast]}
+            >
               <View style={styles.runHeader}>
                 <View style={[styles.statusDot, { backgroundColor: getStatusColor(run.status, colors) }]} />
                 <Text style={[styles.runStatus, { color: colors.textSecondary }]}>{run.status}</Text>
                 <Text style={[styles.runDuration, { color: colors.textMuted }]}>{formatDuration(run.duration_ms)}</Text>
               </View>
-              <Text style={[styles.runDate, { color: colors.textMuted }]}>{formatDate(run.started_at)}</Text>
+              <View style={styles.runMetaRow}>
+                <Text style={[styles.runDate, { color: colors.textMuted }]}>{formatDate(run.started_at)}</Text>
+                <Text style={[styles.viewMore, { color: colors.orange }]}>View Output →</Text>
+              </View>
               {run.output && (
-                <Text style={[styles.runOutput, { color: colors.textSecondary, backgroundColor: colors.surfaceSecondary }]} numberOfLines={5}>
+                <Text style={[styles.runOutput, { color: colors.textSecondary, backgroundColor: colors.surfaceSecondary }]} numberOfLines={3}>
                   {run.output}
                 </Text>
               )}
               {run.error && (
-                <Text style={[styles.runError, { color: colors.error, backgroundColor: `${colors.error}10` }]} numberOfLines={3}>
+                <Text style={[styles.runError, { color: colors.error, backgroundColor: `${colors.error}10` }]} numberOfLines={2}>
                   {run.error}
                 </Text>
               )}
-            </View>
+            </TouchableOpacity>
           ))
         ) : (
           <Text style={[styles.noRuns, { color: colors.textMuted }]}>No runs yet</Text>
@@ -311,9 +333,18 @@ const styles = StyleSheet.create({
   runDuration: {
     fontSize: 12,
   },
+  runMetaRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
   runDate: {
     fontSize: 12,
-    marginBottom: 8,
+  },
+  viewMore: {
+    fontSize: 12,
+    fontWeight: '500',
   },
   runOutput: {
     fontSize: 12,
