@@ -4,6 +4,7 @@ import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useToggleTask, useRunTask } from '../hooks/useTasks';
 import { useTheme } from '../lib/ThemeContext';
 import { getStatusColor, borderRadius } from '../lib/theme';
+import { cronToHuman } from '../lib/cronToHuman';
 import type { Task } from '../lib/types';
 
 interface Props {
@@ -60,7 +61,7 @@ export function TaskCard({ task }: Props) {
         </View>
       </View>
 
-      <Text style={[styles.cron, { color: colors.textSecondary }]}>{task.cron_expr}</Text>
+      <Text style={[styles.cron, { color: colors.textSecondary }]}>{cronToHuman(task.cron_expr)}</Text>
 
       <View style={styles.footer}>
         <Text style={[styles.nextRun, { color: colors.textMuted }]}>
@@ -158,7 +159,6 @@ const styles = StyleSheet.create({
   },
   cron: {
     fontSize: 13,
-    fontFamily: 'monospace',
     marginBottom: 12,
   },
   footer: {
