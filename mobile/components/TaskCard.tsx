@@ -1,9 +1,11 @@
-import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
+import { useRef } from 'react';
+import { View, Text, Pressable, StyleSheet, Platform, Animated } from 'react-native';
 import { Link } from 'expo-router';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useToggleTask, useRunTask } from '../hooks/useTasks';
 import { useTheme } from '../lib/ThemeContext';
-import { getStatusColor, borderRadius } from '../lib/theme';
+import { getStatusColor, borderRadius, spacing } from '../lib/theme';
 import { cronToHuman } from '../lib/cronToHuman';
 import type { Task } from '../lib/types';
 
@@ -13,7 +15,10 @@ interface Props {
 
 const useGlass = Platform.OS === 'ios' && typeof isLiquidGlassAvailable === 'function' && isLiquidGlassAvailable();
 
+const ACTION_WIDTH = 80;
+
 export function TaskCard({ task }: Props) {
+  const swipeableRef = useRef<Swipeable>(null);
   const toggleMutation = useToggleTask();
   const runMutation = useRunTask();
   const { colors, shadows } = useTheme();
@@ -36,6 +41,83 @@ export function TaskCard({ task }: Props) {
     }
     const days = Math.round(absDiff / 86400000);
     return diff > 0 ? `in ${days}d` : `${days}d ago`;
+  };
+
+  const handleToggle = () => {
+    toggleMutation.mutate(task.id);
+    swipeableRef.current?.close();
+  };
+
+  const handleRun = () => {
+    runMutation.mutate(task.id);
+    swipeableRef.current?.close();
+  };
+
+  const renderLeftActions = (
+    progress: Animated.AnimatedInterpolation<number>,
+    dragX: Animated.AnimatedInterpolation<number>
+  ) => {
+    const scale = dragX.interpolate({
+      inputRange: [0, ACTION_WIDTH],
+      outputRange: [0.8, 1],
+      extrapolate: 'clamp',
+    });
+
+    const opacity = dragX.interpolate({
+      inputRange: [0, ACTION_WIDTH / 2, ACTION_WIDTH],
+      outputRange: [0, 0.5, 1],
+      extrapolate: 'clamp',
+    });
+
+    return (
+      <Animated.View style={[styles.leftAction, { opacity }]}>
+        <Pressable
+          onPress={handleToggle}
+          style={[
+            styles.actionButton,
+            { backgroundColor: task.enabled ? colors.textMuted : colors.success },
+          ]}
+        >
+          <Animated.Text
+            style={[styles.actionText, { transform: [{ scale }] }]}
+          >
+            {task.enabled ? 'Disable' : 'Enable'}
+          </Animated.Text>
+        </Pressable>
+      </Animated.View>
+    );
+  };
+
+  const renderRightActions = (
+    progress: Animated.AnimatedInterpolation<number>,
+    dragX: Animated.AnimatedInterpolation<number>
+  ) => {
+    const scale = dragX.interpolate({
+      inputRange: [-ACTION_WIDTH, 0],
+      outputRange: [1, 0.8],
+      extrapolate: 'clamp',
+    });
+
+    const opacity = dragX.interpolate({
+      inputRange: [-ACTION_WIDTH, -ACTION_WIDTH / 2, 0],
+      outputRange: [1, 0.5, 0],
+      extrapolate: 'clamp',
+    });
+
+    return (
+      <Animated.View style={[styles.rightAction, { opacity }]}>
+        <Pressable
+          onPress={handleRun}
+          style={[styles.actionButton, { backgroundColor: colors.orange }]}
+        >
+          <Animated.Text
+            style={[styles.actionText, { transform: [{ scale }] }]}
+          >
+            Run
+          </Animated.Text>
+        </Pressable>
+      </Animated.View>
+    );
   };
 
   const CardWrapper = useGlass ? GlassView : View;
@@ -63,43 +145,9 @@ export function TaskCard({ task }: Props) {
 
       <Text style={[styles.cron, { color: colors.textSecondary }]}>{cronToHuman(task.cron_expr)}</Text>
 
-      <View style={styles.footer}>
-        <Text style={[styles.nextRun, { color: colors.textMuted }]}>
-          {task.next_run_at ? `Next: ${formatRelativeTime(task.next_run_at)}` : 'Not scheduled'}
-        </Text>
-
-        <View style={styles.actions}>
-          <Pressable
-            onPress={(e) => {
-              e.stopPropagation();
-              toggleMutation.mutate(task.id);
-            }}
-            style={({ pressed }) => [
-              styles.actionButton,
-              { backgroundColor: colors.surfaceSecondary },
-              pressed && { backgroundColor: colors.border }
-            ]}
-          >
-            <Text style={[styles.actionText, { color: colors.textSecondary }]}>
-              {task.enabled ? 'Disable' : 'Enable'}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={(e) => {
-              e.stopPropagation();
-              runMutation.mutate(task.id);
-            }}
-            style={({ pressed }) => [
-              styles.actionButton,
-              { backgroundColor: `${colors.orange}20` },
-              pressed && { backgroundColor: `${colors.orange}40` }
-            ]}
-          >
-            <Text style={[styles.actionText, { color: colors.orange }]}>Run</Text>
-          </Pressable>
-        </View>
-      </View>
+      <Text style={[styles.nextRun, { color: colors.textMuted }]}>
+        {task.next_run_at ? `Next: ${formatRelativeTime(task.next_run_at)}` : 'Not scheduled'}
+      </Text>
     </>
   );
 
@@ -108,40 +156,73 @@ export function TaskCard({ task }: Props) {
     : [styles.card, { backgroundColor: colors.cardBackground }, shadows.md];
 
   return (
-    <Link href={`/task/${task.id}`} asChild>
-      <Pressable>
-        <CardWrapper style={cardStyle} {...(useGlass && { glassEffectStyle: 'regular' })}>
-          {content}
-        </CardWrapper>
-      </Pressable>
-    </Link>
+    <Swipeable
+      ref={swipeableRef}
+      renderLeftActions={renderLeftActions}
+      renderRightActions={renderRightActions}
+      leftThreshold={ACTION_WIDTH / 2}
+      rightThreshold={ACTION_WIDTH / 2}
+      friction={2}
+      overshootLeft={false}
+      overshootRight={false}
+      containerStyle={styles.swipeContainer}
+    >
+      <Link href={`/task/${task.id}`} asChild>
+        <Pressable>
+          <CardWrapper style={cardStyle} {...(useGlass && { glassEffectStyle: 'regular' })}>
+            {content}
+          </CardWrapper>
+        </Pressable>
+      </Link>
+    </Swipeable>
   );
 }
 
 const styles = StyleSheet.create({
+  swipeContainer: {
+    marginHorizontal: spacing.lg,
+    marginVertical: spacing.sm,
+  },
+  leftAction: {
+    justifyContent: 'center',
+    marginRight: -borderRadius.lg,
+  },
+  rightAction: {
+    justifyContent: 'center',
+    marginLeft: -borderRadius.lg,
+  },
+  actionButton: {
+    width: ACTION_WIDTH + borderRadius.lg,
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingLeft: borderRadius.lg / 2,
+    borderRadius: borderRadius.lg,
+  },
+  actionText: {
+    color: '#ffffff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
   glassCard: {
     borderRadius: borderRadius.lg,
-    padding: 16,
-    marginHorizontal: 16,
-    marginVertical: 8,
+    padding: spacing.lg,
     overflow: 'hidden',
   },
   card: {
     borderRadius: borderRadius.lg,
-    padding: 16,
-    marginHorizontal: 16,
-    marginVertical: 8,
+    padding: spacing.lg,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: spacing.sm,
   },
   statusDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    marginRight: 8,
+    marginRight: spacing.sm,
   },
   name: {
     flex: 1,
@@ -149,8 +230,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   badge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
     borderRadius: borderRadius.full,
   },
   badgeText: {
@@ -159,27 +240,9 @@ const styles = StyleSheet.create({
   },
   cron: {
     fontSize: 13,
-    marginBottom: 12,
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    marginBottom: spacing.sm,
   },
   nextRun: {
     fontSize: 12,
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  actionButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: borderRadius.sm,
-  },
-  actionText: {
-    fontSize: 12,
-    fontWeight: '500',
   },
 });

@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.17",
+    "react-native-gesture-handler": "~2.24.0",
+    "react-native-reanimated": "~3.17.4",
     "react-native-markdown-display": "^7.0.2",
     "expo": "~54.0.31",
     "expo-constants": "~18.0.13",
