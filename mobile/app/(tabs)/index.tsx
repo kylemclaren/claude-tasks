@@ -1,8 +1,10 @@
+import { useState, useMemo } from 'react';
 import { View, FlatList, RefreshControl, StyleSheet, Pressable, Text } from 'react-native';
 import { useTasks } from '../../hooks/useTasks';
 import { useUsage } from '../../hooks/useUsage';
 import { TaskCard } from '../../components/TaskCard';
 import { UsageBar } from '../../components/UsageBar';
+import { SearchFilterBar } from '../../components/SearchFilterBar';
 import { useTheme } from '../../lib/ThemeContext';
 import { borderRadius } from '../../lib/theme';
 
@@ -10,6 +12,18 @@ export default function TasksScreen() {
   const { data, isLoading, refetch, error } = useTasks();
   const { data: usage } = useUsage();
   const { colors } = useTheme();
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const filteredTasks = useMemo(() => {
+    const tasks = data?.tasks ?? [];
+    if (!searchQuery.trim()) return tasks;
+    const query = searchQuery.toLowerCase().trim();
+    return tasks.filter(task =>
+      task.name.toLowerCase().includes(query) ||
+      task.cron_expr.toLowerCase().includes(query) ||
+      task.prompt?.toLowerCase().includes(query)
+    );
+  }, [data?.tasks, searchQuery]);
 
   if (error) {
     return (
@@ -33,10 +47,19 @@ export default function TasksScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <FlatList
-        data={data?.tasks ?? []}
+        data={filteredTasks}
         keyExtractor={(item) => item.id.toString()}
         renderItem={({ item }) => <TaskCard task={item} />}
-        ListHeaderComponent={usage ? <UsageBar usage={usage} /> : null}
+        ListHeaderComponent={
+          <>
+            {usage && <UsageBar usage={usage} />}
+            <SearchFilterBar
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Search tasks..."
+            />
+          </>
+        }
         refreshControl={
           <RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={colors.textMuted} />
         }
@@ -48,9 +71,13 @@ export default function TasksScreen() {
                 <View style={[styles.emptyRing2, { borderColor: colors.textMuted }]} />
                 <View style={[styles.emptyDot, { backgroundColor: colors.orange }]} />
               </View>
-              <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No Tasks</Text>
+              <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>
+                {searchQuery ? 'No Results' : 'No Tasks'}
+              </Text>
               <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-                Create your first task to get started
+                {searchQuery
+                  ? `No tasks matching "${searchQuery}"`
+                  : 'Create your first task to get started'}
               </Text>
             </View>
           ) : null
