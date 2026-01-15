@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SplashScreenModule from 'expo-splash-screen';
 import { SplashScreen } from '../components/SplashScreen';
 import { ThemeProvider, useTheme } from '../lib/ThemeContext';
+import { ToastProvider } from '../lib/ToastContext';
 
 // Keep the native splash screen visible while we show our custom one
 SplashScreenModule.preventAutoHideAsync();
@@ -94,7 +95,9 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <ThemeProvider>
-          <RootLayoutContent />
+          <ToastProvider>
+            <RootLayoutContent />
+          </ToastProvider>
         </ThemeProvider>
       </QueryClientProvider>
     </GestureHandlerRootView>

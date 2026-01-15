@@ -5,6 +5,7 @@ import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { Swipeable } from 'react-native-gesture-handler';
 import { useToggleTask, useRunTask } from '../hooks/useTasks';
 import { useTheme } from '../lib/ThemeContext';
+import { useToast } from '../lib/ToastContext';
 import { getStatusColor, borderRadius, spacing } from '../lib/theme';
 import { cronToHuman } from '../lib/cronToHuman';
 import type { Task } from '../lib/types';
@@ -22,6 +23,7 @@ export function TaskCard({ task }: Props) {
   const toggleMutation = useToggleTask();
   const runMutation = useRunTask();
   const { colors, shadows } = useTheme();
+  const { showToast } = useToast();
 
   const formatRelativeTime = (dateStr?: string) => {
     if (!dateStr) return 'Never';
@@ -44,12 +46,27 @@ export function TaskCard({ task }: Props) {
   };
 
   const handleToggle = () => {
-    toggleMutation.mutate(task.id);
+    const willEnable = !task.enabled;
+    toggleMutation.mutate(task.id, {
+      onSuccess: () => {
+        showToast(willEnable ? `${task.name} enabled` : `${task.name} disabled`);
+      },
+      onError: () => {
+        showToast('Failed to update task', 'error');
+      },
+    });
     swipeableRef.current?.close();
   };
 
   const handleRun = () => {
-    runMutation.mutate(task.id);
+    runMutation.mutate(task.id, {
+      onSuccess: () => {
+        showToast(`Running ${task.name}...`);
+      },
+      onError: () => {
+        showToast('Failed to run task', 'error');
+      },
+    });
     swipeableRef.current?.close();
   };
 

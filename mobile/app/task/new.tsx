@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { router } from 'expo-router';
 import { useCreateTask } from '../../hooks/useTasks';
 import { useTheme } from '../../lib/ThemeContext';
+import { useToast } from '../../lib/ToastContext';
 import { borderRadius } from '../../lib/theme';
 
 const CRON_PRESETS = [
@@ -20,6 +21,7 @@ const CRON_PRESETS = [
 export default function NewTaskScreen() {
   const createTask = useCreateTask();
   const { colors, shadows } = useTheme();
+  const { showToast } = useToast();
 
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -51,10 +53,11 @@ export default function NewTaskScreen() {
       },
       {
         onSuccess: () => {
+          showToast(`${name.trim()} created`);
           router.back();
         },
         onError: (error) => {
-          Alert.alert('Error', error.message);
+          showToast(error.message || 'Failed to create task', 'error');
         },
       }
     );

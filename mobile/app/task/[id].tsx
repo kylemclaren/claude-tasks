@@ -3,6 +3,7 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useTask, useTaskRuns, useToggleTask, useRunTask, useDeleteTask } from '../../hooks/useTasks';
 import { useTheme } from '../../lib/ThemeContext';
+import { useToast } from '../../lib/ToastContext';
 import { getStatusColor, borderRadius } from '../../lib/theme';
 
 const useGlass = Platform.OS === 'ios' && typeof isLiquidGlassAvailable === 'function' && isLiquidGlassAvailable();
@@ -11,6 +12,7 @@ export default function TaskDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const taskId = parseInt(id, 10);
   const { colors, shadows } = useTheme();
+  const { showToast } = useToast();
 
   const { data: task, isLoading: taskLoading, refetch: refetchTask } = useTask(taskId);
   const { data: runsData, isLoading: runsLoading, refetch: refetchRuns } = useTaskRuns(taskId);
@@ -28,13 +30,45 @@ export default function TaskDetailScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: () => {
+            const taskName = task?.name;
             deleteMutation.mutate(taskId, {
-              onSuccess: () => router.back(),
+              onSuccess: () => {
+                showToast(`${taskName} deleted`);
+                router.back();
+              },
+              onError: () => {
+                showToast('Failed to delete task', 'error');
+              },
             });
           },
         },
       ]
     );
+  };
+
+  const handleToggle = () => {
+    if (!task) return;
+    const willEnable = !task.enabled;
+    toggleMutation.mutate(taskId, {
+      onSuccess: () => {
+        showToast(willEnable ? `${task.name} enabled` : `${task.name} disabled`);
+      },
+      onError: () => {
+        showToast('Failed to update task', 'error');
+      },
+    });
+  };
+
+  const handleRun = () => {
+    if (!task) return;
+    runMutation.mutate(taskId, {
+      onSuccess: () => {
+        showToast(`Running ${task.name}...`);
+      },
+      onError: () => {
+        showToast('Failed to run task', 'error');
+      },
+    });
   };
 
   const formatDate = (dateStr?: string) => {
@@ -140,7 +174,7 @@ export default function TaskDetailScreen() {
             { backgroundColor: colors.surfaceSecondary },
             pressed && { backgroundColor: colors.border }
           ]}
-          onPress={() => toggleMutation.mutate(taskId)}
+          onPress={handleToggle}
         >
           <Text style={[styles.actionButtonText, { color: colors.textSecondary }]}>
             {task.enabled ? 'Disable' : 'Enable'}
@@ -153,7 +187,7 @@ export default function TaskDetailScreen() {
             { backgroundColor: colors.orange },
             pressed && { backgroundColor: '#c46648' }
           ]}
-          onPress={() => runMutation.mutate(taskId)}
+          onPress={handleRun}
         >
           <Text style={styles.runButtonText}>Run Now</Text>
         </Pressable>

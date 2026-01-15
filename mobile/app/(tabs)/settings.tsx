@@ -6,6 +6,7 @@ import { useUsage } from '../../hooks/useUsage';
 import { getApiBase, setApiBase } from '../../lib/api';
 import { UsageBar } from '../../components/UsageBar';
 import { useTheme } from '../../lib/ThemeContext';
+import { useToast } from '../../lib/ToastContext';
 import { borderRadius } from '../../lib/theme';
 
 const useGlass = Platform.OS === 'ios' && typeof isLiquidGlassAvailable === 'function' && isLiquidGlassAvailable();
@@ -15,6 +16,7 @@ export default function SettingsScreen() {
   const { data: usage } = useUsage();
   const updateSettings = useUpdateSettings();
   const { colors, shadows, isDark } = useTheme();
+  const { showToast } = useToast();
 
   const [threshold, setThreshold] = useState('80');
   const [apiUrl, setApiUrl] = useState('');
@@ -33,19 +35,25 @@ export default function SettingsScreen() {
   const handleSaveThreshold = () => {
     const value = parseFloat(threshold);
     if (isNaN(value) || value < 0 || value > 100) {
-      Alert.alert('Invalid Value', 'Threshold must be between 0 and 100');
+      showToast('Threshold must be 0-100%', 'error');
       return;
     }
-    updateSettings.mutate({ usage_threshold: value });
+    updateSettings.mutate(
+      { usage_threshold: value },
+      {
+        onSuccess: () => showToast('Threshold saved'),
+        onError: () => showToast('Failed to save threshold', 'error'),
+      }
+    );
   };
 
   const handleSaveApiUrl = async () => {
     try {
       await setApiBase(apiUrl);
       setIsEditing(false);
-      Alert.alert('Success', 'API URL updated');
+      showToast('API URL updated');
     } catch (error) {
-      Alert.alert('Error', 'Failed to save API URL');
+      showToast('Failed to save API URL', 'error');
     }
   };
 
