@@ -1,12 +1,17 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
+	"github.com/kylemclaren/claude-tasks/internal/api"
 	"github.com/kylemclaren/claude-tasks/internal/db"
 	"github.com/kylemclaren/claude-tasks/internal/scheduler"
 	"github.com/kylemclaren/claude-tasks/internal/tui"
@@ -32,6 +37,12 @@ func main() {
 			return
 		case "daemon":
 			if err := runDaemon(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		case "serve":
+			if err := runServer(); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
@@ -138,6 +149,66 @@ func runDaemon() error {
 	return nil
 }
 
+func runServer() error {
+	// Parse flags for serve command
+	serveCmd := flag.NewFlagSet("serve", flag.ExitOnError)
+	port := serveCmd.Int("port", 8080, "HTTP server port")
+	serveCmd.Parse(os.Args[2:])
+
+	dataDir := os.Getenv("CLAUDE_TASKS_DATA")
+	if dataDir == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("getting home directory: %w", err)
+		}
+		dataDir = filepath.Join(homeDir, ".claude-tasks")
+	}
+
+	dbPath := filepath.Join(dataDir, "tasks.db")
+
+	database, err := db.New(dbPath)
+	if err != nil {
+		return fmt.Errorf("initializing database: %w", err)
+	}
+	defer database.Close()
+
+	sched := scheduler.New(database)
+	if err := sched.Start(); err != nil {
+		return fmt.Errorf("starting scheduler: %w", err)
+	}
+	defer sched.Stop()
+
+	server := api.NewServer(database, sched)
+
+	addr := fmt.Sprintf(":%d", *port)
+	fmt.Printf("claude-tasks API server starting on %s\n", addr)
+	fmt.Printf("Database: %s\n", dbPath)
+
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: server.Router(),
+	}
+
+	// Start server in goroutine
+	go func() {
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
+		}
+	}()
+
+	// Wait for shutdown signal
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+
+	fmt.Println("\nShutting down server...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	return srv.Shutdown(ctx)
+}
+
 // isDaemonRunning checks if a daemon is running by reading PID file and checking process
 func isDaemonRunning(pidPath string) (int, bool) {
 	data, err := os.ReadFile(pidPath)
@@ -170,9 +241,13 @@ func printHelp() {
 Usage:
   claude-tasks              Launch the interactive TUI
   claude-tasks daemon       Run scheduler in foreground (for services)
+  claude-tasks serve        Run HTTP API server (for mobile/remote access)
   claude-tasks version      Show version information
   claude-tasks upgrade      Upgrade to the latest version
   claude-tasks help         Show this help message
+
+Serve Options:
+  --port                    HTTP server port (default: 8080)
 
 Environment Variables:
   CLAUDE_TASKS_DATA         Override data directory (default: ~/.claude-tasks)
