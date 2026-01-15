@@ -2,6 +2,8 @@ import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert, Modal,
 import { useState } from 'react';
 import { router } from 'expo-router';
 import { useCreateTask } from '../../hooks/useTasks';
+import { useTheme } from '../../lib/ThemeContext';
+import { borderRadius } from '../../lib/theme';
 
 const CRON_PRESETS = [
   { name: 'Every minute', expr: '0 * * * * *', desc: 'Runs at the start of every minute' },
@@ -17,6 +19,7 @@ const CRON_PRESETS = [
 
 export default function NewTaskScreen() {
   const createTask = useCreateTask();
+  const { colors, shadows } = useTheme();
 
   const [name, setName] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -58,26 +61,28 @@ export default function NewTaskScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]} keyboardShouldPersistTaps="handled">
       <View style={styles.form}>
         <View style={styles.field}>
-          <Text style={styles.label}>Name *</Text>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>Name *</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { borderColor: colors.border, backgroundColor: colors.surface, color: colors.textPrimary }]}
             value={name}
             onChangeText={setName}
             placeholder="Task name"
+            placeholderTextColor={colors.textMuted}
             autoFocus
           />
         </View>
 
         <View style={styles.field}>
-          <Text style={styles.label}>Prompt *</Text>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>Prompt *</Text>
           <TextInput
-            style={[styles.input, styles.textArea]}
+            style={[styles.input, styles.textArea, { borderColor: colors.border, backgroundColor: colors.surface, color: colors.textPrimary }]}
             value={prompt}
             onChangeText={setPrompt}
             placeholder="What should Claude do?"
+            placeholderTextColor={colors.textMuted}
             multiline
             numberOfLines={4}
             textAlignVertical="top"
@@ -85,34 +90,44 @@ export default function NewTaskScreen() {
         </View>
 
         <View style={styles.field}>
-          <Text style={styles.label}>Schedule *</Text>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>Schedule *</Text>
           <Pressable
-            style={styles.cronInput}
+            style={({ pressed }) => [
+              styles.cronInput,
+              { borderColor: colors.border, backgroundColor: colors.surface },
+              pressed && { backgroundColor: colors.surfaceSecondary }
+            ]}
             onPress={() => setShowCronPicker(true)}
           >
-            <Text style={cronExpr ? styles.cronText : styles.cronPlaceholder}>
+            <Text style={cronExpr ? [styles.cronText, { color: colors.textPrimary }] : [styles.cronPlaceholder, { color: colors.textMuted }]}>
               {cronExpr || 'Select schedule...'}
             </Text>
           </Pressable>
-          <Text style={styles.hint}>
+          <Text style={[styles.hint, { color: colors.textMuted }]}>
             6-field cron: second minute hour day month weekday
           </Text>
         </View>
 
         <View style={styles.field}>
-          <Text style={styles.label}>Working Directory</Text>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>Working Directory</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, { borderColor: colors.border, backgroundColor: colors.surface, color: colors.textPrimary }]}
             value={workingDir}
             onChangeText={setWorkingDir}
             placeholder="."
+            placeholderTextColor={colors.textMuted}
             autoCapitalize="none"
             autoCorrect={false}
           />
         </View>
 
         <Pressable
-          style={[styles.submitButton, createTask.isPending && styles.submitButtonDisabled]}
+          style={({ pressed }) => [
+            styles.submitButton,
+            { backgroundColor: colors.orange },
+            createTask.isPending && { backgroundColor: colors.textMuted },
+            pressed && !createTask.isPending && { backgroundColor: '#c46648' }
+          ]}
           onPress={handleSubmit}
           disabled={createTask.isPending}
         >
@@ -127,11 +142,11 @@ export default function NewTaskScreen() {
         animationType="slide"
         presentationStyle="pageSheet"
       >
-        <View style={styles.modal}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Select Schedule</Text>
+        <View style={[styles.modal, { backgroundColor: colors.background }]}>
+          <View style={[styles.modalHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Select Schedule</Text>
             <Pressable onPress={() => setShowCronPicker(false)}>
-              <Text style={styles.modalClose}>Done</Text>
+              <Text style={[styles.modalClose, { color: colors.orange }]}>Done</Text>
             </Pressable>
           </View>
 
@@ -144,25 +159,28 @@ export default function NewTaskScreen() {
                   setCronExpr(item.expr);
                   setShowCronPicker(false);
                 }}
-                style={[
+                style={({ pressed }) => [
                   styles.presetItem,
-                  cronExpr === item.expr && styles.presetItemSelected,
+                  { backgroundColor: colors.surface },
+                  cronExpr === item.expr && { borderColor: colors.orange, backgroundColor: `${colors.orange}10` },
+                  pressed && { backgroundColor: colors.surfaceSecondary }
                 ]}
               >
-                <Text style={styles.presetName}>{item.name}</Text>
-                <Text style={styles.presetExpr}>{item.expr}</Text>
-                <Text style={styles.presetDesc}>{item.desc}</Text>
+                <Text style={[styles.presetName, { color: colors.textPrimary }]}>{item.name}</Text>
+                <Text style={[styles.presetExpr, { color: colors.textSecondary }]}>{item.expr}</Text>
+                <Text style={[styles.presetDesc, { color: colors.textMuted }]}>{item.desc}</Text>
               </Pressable>
             )}
           />
 
-          <View style={styles.customCron}>
-            <Text style={styles.customCronLabel}>Custom cron expression:</Text>
+          <View style={[styles.customCron, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
+            <Text style={[styles.customCronLabel, { color: colors.textSecondary }]}>Custom cron expression:</Text>
             <TextInput
-              style={styles.input}
+              style={[styles.input, { borderColor: colors.border, backgroundColor: colors.background, color: colors.textPrimary }]}
               value={cronExpr}
               onChangeText={setCronExpr}
               placeholder="0 * * * * *"
+              placeholderTextColor={colors.textMuted}
               autoCapitalize="none"
               autoCorrect={false}
             />
@@ -176,7 +194,6 @@ export default function NewTaskScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
   },
   form: {
     padding: 16,
@@ -187,120 +204,92 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#374151',
     marginBottom: 6,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
+    borderRadius: borderRadius.sm,
     paddingHorizontal: 12,
     paddingVertical: 12,
     fontSize: 16,
-    backgroundColor: '#fff',
   },
   textArea: {
     minHeight: 100,
   },
   cronInput: {
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
+    borderRadius: borderRadius.sm,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: '#fff',
   },
   cronText: {
     fontSize: 16,
-    color: '#111827',
     fontFamily: 'monospace',
   },
   cronPlaceholder: {
     fontSize: 16,
-    color: '#9ca3af',
   },
   hint: {
     fontSize: 12,
-    color: '#6b7280',
     marginTop: 4,
   },
   submitButton: {
-    backgroundColor: '#2563eb',
     paddingVertical: 14,
-    borderRadius: 8,
+    borderRadius: borderRadius.md,
     alignItems: 'center',
     marginTop: 8,
-  },
-  submitButtonDisabled: {
-    backgroundColor: '#9ca3af',
   },
   submitButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#fff',
+    color: '#faf9f5',
   },
   modal: {
     flex: 1,
-    backgroundColor: '#f9fafb',
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#111827',
   },
   modalClose: {
     fontSize: 16,
-    color: '#2563eb',
     fontWeight: '500',
   },
   presetItem: {
-    backgroundColor: '#fff',
     padding: 16,
     marginHorizontal: 16,
     marginTop: 12,
-    borderRadius: 8,
+    borderRadius: borderRadius.md,
     borderWidth: 2,
     borderColor: 'transparent',
-  },
-  presetItemSelected: {
-    borderColor: '#2563eb',
-    backgroundColor: '#eff6ff',
   },
   presetName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#111827',
     marginBottom: 4,
   },
   presetExpr: {
     fontSize: 14,
-    color: '#6b7280',
     fontFamily: 'monospace',
     marginBottom: 4,
   },
   presetDesc: {
     fontSize: 12,
-    color: '#9ca3af',
   },
   customCron: {
     padding: 16,
-    backgroundColor: '#fff',
     borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
   },
   customCronLabel: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#374151',
     marginBottom: 8,
   },
 });
