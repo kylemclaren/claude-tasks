@@ -1,31 +1,21 @@
 import { View, Text, Pressable, StyleSheet, Platform } from 'react-native';
 import { Link } from 'expo-router';
-import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
+import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useToggleTask, useRunTask } from '../hooks/useTasks';
+import { useTheme } from '../lib/ThemeContext';
+import { getStatusColor, borderRadius } from '../lib/theme';
 import type { Task } from '../lib/types';
 
 interface Props {
   task: Task;
 }
 
-const useGlass = Platform.OS === 'ios' && isGlassEffectAPIAvailable();
+const useGlass = Platform.OS === 'ios' && typeof isLiquidGlassAvailable === 'function' && isLiquidGlassAvailable();
 
 export function TaskCard({ task }: Props) {
   const toggleMutation = useToggleTask();
   const runMutation = useRunTask();
-
-  const getStatusColor = () => {
-    switch (task.last_run_status) {
-      case 'completed':
-        return '#22c55e';
-      case 'failed':
-        return '#ef4444';
-      case 'running':
-        return '#f59e0b';
-      default:
-        return '#6b7280';
-    }
-  };
+  const { colors, shadows } = useTheme();
 
   const formatRelativeTime = (dateStr?: string) => {
     if (!dateStr) return 'Never';
@@ -48,26 +38,32 @@ export function TaskCard({ task }: Props) {
   };
 
   const CardWrapper = useGlass ? GlassView : View;
-  const cardStyle = useGlass ? styles.glassCard : styles.card;
+  const statusColor = getStatusColor(task.last_run_status, colors);
+  const enabledBgColor = task.enabled
+    ? `${colors.success}25`
+    : colors.surfaceSecondary;
+  const enabledTextColor = task.enabled
+    ? colors.success
+    : colors.textMuted;
 
   const content = (
     <>
       <View style={styles.header}>
-        <View style={[styles.statusDot, { backgroundColor: getStatusColor() }]} />
-        <Text style={styles.name} numberOfLines={1}>
+        <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+        <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>
           {task.name}
         </Text>
-        <View style={[styles.badge, { backgroundColor: task.enabled ? 'rgba(220, 252, 231, 0.8)' : 'rgba(243, 244, 246, 0.8)' }]}>
-          <Text style={[styles.badgeText, { color: task.enabled ? '#166534' : '#6b7280' }]}>
+        <View style={[styles.badge, { backgroundColor: enabledBgColor }]}>
+          <Text style={[styles.badgeText, { color: enabledTextColor }]}>
             {task.enabled ? 'Enabled' : 'Disabled'}
           </Text>
         </View>
       </View>
 
-      <Text style={styles.cron}>{task.cron_expr}</Text>
+      <Text style={[styles.cron, { color: colors.textSecondary }]}>{task.cron_expr}</Text>
 
       <View style={styles.footer}>
-        <Text style={styles.nextRun}>
+        <Text style={[styles.nextRun, { color: colors.textMuted }]}>
           {task.next_run_at ? `Next: ${formatRelativeTime(task.next_run_at)}` : 'Not scheduled'}
         </Text>
 
@@ -77,9 +73,15 @@ export function TaskCard({ task }: Props) {
               e.stopPropagation();
               toggleMutation.mutate(task.id);
             }}
-            style={styles.actionButton}
+            style={({ pressed }) => [
+              styles.actionButton,
+              { backgroundColor: colors.surfaceSecondary },
+              pressed && { backgroundColor: colors.border }
+            ]}
           >
-            <Text style={styles.actionText}>{task.enabled ? 'Disable' : 'Enable'}</Text>
+            <Text style={[styles.actionText, { color: colors.textSecondary }]}>
+              {task.enabled ? 'Disable' : 'Enable'}
+            </Text>
           </Pressable>
 
           <Pressable
@@ -87,14 +89,22 @@ export function TaskCard({ task }: Props) {
               e.stopPropagation();
               runMutation.mutate(task.id);
             }}
-            style={[styles.actionButton, styles.runButton]}
+            style={({ pressed }) => [
+              styles.actionButton,
+              { backgroundColor: `${colors.orange}20` },
+              pressed && { backgroundColor: `${colors.orange}40` }
+            ]}
           >
-            <Text style={[styles.actionText, styles.runText]}>Run</Text>
+            <Text style={[styles.actionText, { color: colors.orange }]}>Run</Text>
           </Pressable>
         </View>
       </View>
     </>
   );
+
+  const cardStyle = useGlass
+    ? styles.glassCard
+    : [styles.card, { backgroundColor: colors.cardBackground }, shadows.md];
 
   return (
     <Link href={`/task/${task.id}`} asChild>
@@ -109,23 +119,17 @@ export function TaskCard({ task }: Props) {
 
 const styles = StyleSheet.create({
   glassCard: {
-    borderRadius: 16,
+    borderRadius: borderRadius.lg,
     padding: 16,
     marginHorizontal: 16,
     marginVertical: 8,
     overflow: 'hidden',
   },
   card: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 16,
+    borderRadius: borderRadius.lg,
     padding: 16,
     marginHorizontal: 16,
     marginVertical: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
   },
   header: {
     flexDirection: 'row',
@@ -142,12 +146,11 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: '600',
-    color: '#111827',
   },
   badge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 12,
+    borderRadius: borderRadius.full,
   },
   badgeText: {
     fontSize: 12,
@@ -155,7 +158,6 @@ const styles = StyleSheet.create({
   },
   cron: {
     fontSize: 13,
-    color: '#6b7280',
     fontFamily: 'monospace',
     marginBottom: 12,
   },
@@ -166,7 +168,6 @@ const styles = StyleSheet.create({
   },
   nextRun: {
     fontSize: 12,
-    color: '#9ca3af',
   },
   actions: {
     flexDirection: 'row',
@@ -175,18 +176,10 @@ const styles = StyleSheet.create({
   actionButton: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: 'rgba(243, 244, 246, 0.8)',
+    borderRadius: borderRadius.sm,
   },
   actionText: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#374151',
-  },
-  runButton: {
-    backgroundColor: 'rgba(219, 234, 254, 0.8)',
-  },
-  runText: {
-    color: '#1d4ed8',
   },
 });
