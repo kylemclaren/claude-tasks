@@ -1,17 +1,20 @@
 import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
 import { useState, useEffect } from 'react';
-import { GlassView, isGlassEffectAPIAvailable } from 'expo-glass-effect';
+import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useSettings, useUpdateSettings } from '../../hooks/useSettings';
 import { useUsage } from '../../hooks/useUsage';
 import { getApiBase, setApiBase } from '../../lib/api';
 import { UsageBar } from '../../components/UsageBar';
+import { useTheme } from '../../lib/ThemeContext';
+import { borderRadius } from '../../lib/theme';
 
-const useGlass = Platform.OS === 'ios' && isGlassEffectAPIAvailable();
+const useGlass = Platform.OS === 'ios' && typeof isLiquidGlassAvailable === 'function' && isLiquidGlassAvailable();
 
 export default function SettingsScreen() {
-  const { data: settings, isLoading: settingsLoading } = useSettings();
-  const { data: usage, isLoading: usageLoading } = useUsage();
+  const { data: settings } = useSettings();
+  const { data: usage } = useUsage();
   const updateSettings = useUpdateSettings();
+  const { colors, shadows, isDark } = useTheme();
 
   const [threshold, setThreshold] = useState('80');
   const [apiUrl, setApiUrl] = useState('');
@@ -47,30 +50,41 @@ export default function SettingsScreen() {
   };
 
   const CardWrapper = useGlass ? GlassView : View;
-  const sectionStyle = useGlass ? styles.glassSection : styles.section;
+  const sectionStyle = useGlass
+    ? styles.glassSection
+    : [styles.section, { backgroundColor: colors.cardBackground }, shadows.md];
 
   return (
-    <ScrollView style={styles.container}>
+    <ScrollView style={[styles.container, { backgroundColor: colors.background }]}>
       {usage && <UsageBar usage={usage} />}
 
       <CardWrapper style={sectionStyle} {...(useGlass && { glassEffectStyle: 'regular' })}>
-        <Text style={styles.sectionTitle}>Usage Threshold</Text>
-        <Text style={styles.sectionDescription}>
+        <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Usage Threshold</Text>
+        <Text style={[styles.sectionDescription, { color: colors.textSecondary }]}>
           Tasks will be skipped when API usage exceeds this percentage
         </Text>
 
         <View style={styles.inputRow}>
           <TextInput
-            style={styles.input}
+            style={[styles.input, {
+              borderColor: colors.border,
+              backgroundColor: colors.inputBackground,
+              color: colors.textPrimary
+            }]}
             value={threshold}
             onChangeText={setThreshold}
             keyboardType="numeric"
             placeholder="80"
-            placeholderTextColor="#9ca3af"
+            placeholderTextColor={colors.textMuted}
           />
-          <Text style={styles.suffix}>%</Text>
+          <Text style={[styles.suffix, { color: colors.textSecondary }]}>%</Text>
           <Pressable
-            style={[styles.button, updateSettings.isPending && styles.buttonDisabled]}
+            style={({ pressed }) => [
+              styles.button,
+              { backgroundColor: colors.orange },
+              updateSettings.isPending && { backgroundColor: colors.textMuted },
+              pressed && !updateSettings.isPending && { backgroundColor: '#c46648' }
+            ]}
             onPress={handleSaveThreshold}
             disabled={updateSettings.isPending}
           >
@@ -80,47 +94,86 @@ export default function SettingsScreen() {
       </CardWrapper>
 
       <CardWrapper style={sectionStyle} {...(useGlass && { glassEffectStyle: 'regular' })}>
-        <Text style={styles.sectionTitle}>API Server</Text>
-        <Text style={styles.sectionDescription}>
+        <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>API Server</Text>
+        <Text style={[styles.sectionDescription, { color: colors.textSecondary }]}>
           The Sprite URL for the Claude Tasks API
         </Text>
 
         {isEditing ? (
           <View style={styles.inputRow}>
             <TextInput
-              style={[styles.input, styles.urlInput]}
+              style={[styles.input, styles.urlInput, {
+                borderColor: colors.border,
+                backgroundColor: colors.inputBackground,
+                color: colors.textPrimary
+              }]}
               value={apiUrl}
               onChangeText={setApiUrl}
               autoCapitalize="none"
               autoCorrect={false}
               placeholder="https://your-sprite.sprites.app"
-              placeholderTextColor="#9ca3af"
+              placeholderTextColor={colors.textMuted}
             />
-            <Pressable style={styles.button} onPress={handleSaveApiUrl}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.button,
+                { backgroundColor: colors.orange },
+                pressed && { backgroundColor: '#c46648' }
+              ]}
+              onPress={handleSaveApiUrl}
+            >
               <Text style={styles.buttonText}>Save</Text>
             </Pressable>
           </View>
         ) : (
-          <Pressable style={styles.urlDisplay} onPress={() => setIsEditing(true)}>
-            <Text style={styles.urlText} numberOfLines={1}>
+          <Pressable
+            style={[styles.urlDisplay, { backgroundColor: colors.surfaceSecondary }]}
+            onPress={() => setIsEditing(true)}
+          >
+            <Text style={[styles.urlText, { color: colors.textSecondary }]} numberOfLines={1}>
               {apiUrl}
             </Text>
-            <Text style={styles.editText}>Edit</Text>
+            <Text style={[styles.editText, { color: colors.orange }]}>Edit</Text>
           </Pressable>
         )}
       </CardWrapper>
 
       <CardWrapper style={sectionStyle} {...(useGlass && { glassEffectStyle: 'regular' })}>
-        <Text style={styles.sectionTitle}>About</Text>
-        <View style={styles.aboutRow}>
-          <Text style={styles.aboutLabel}>App Version</Text>
-          <Text style={styles.aboutValue}>1.0.0</Text>
+        <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>About</Text>
+        <View style={[styles.aboutRow, { borderBottomColor: colors.surfaceSecondary }]}>
+          <Text style={[styles.aboutLabel, { color: colors.textSecondary }]}>App Version</Text>
+          <Text style={[styles.aboutValue, { color: colors.textPrimary }]}>1.0.0</Text>
+        </View>
+        <View style={[styles.aboutRow, { borderBottomColor: colors.surfaceSecondary }]}>
+          <Text style={[styles.aboutLabel, { color: colors.textSecondary }]}>Claude Tasks</Text>
+          <Text style={[styles.aboutValue, { color: colors.textPrimary }]}>Mobile Client</Text>
+        </View>
+        <View style={[styles.aboutRow, { borderBottomColor: colors.surfaceSecondary }]}>
+          <Text style={[styles.aboutLabel, { color: colors.textSecondary }]}>Theme</Text>
+          <Text style={[styles.aboutValue, { color: colors.textPrimary }]}>
+            {isDark ? 'Dark' : 'Light'} (System)
+          </Text>
+        </View>
+        <View style={[styles.aboutRow, { borderBottomColor: colors.surfaceSecondary }]}>
+          <Text style={[styles.aboutLabel, { color: colors.textSecondary }]}>Platform</Text>
+          <Text style={[styles.aboutValue, { color: colors.textPrimary }]}>
+            {Platform.OS} {Platform.Version}
+          </Text>
         </View>
         <View style={[styles.aboutRow, styles.aboutRowLast]}>
-          <Text style={styles.aboutLabel}>Claude Tasks</Text>
-          <Text style={styles.aboutValue}>Mobile Client</Text>
+          <Text style={[styles.aboutLabel, { color: colors.textSecondary }]}>Liquid Glass</Text>
+          <Text style={[styles.aboutValue, { color: useGlass ? colors.success : colors.textMuted }]}>
+            {useGlass ? 'Enabled' : 'Not Available'}
+          </Text>
         </View>
       </CardWrapper>
+
+      {/* Brand accent bar */}
+      <View style={styles.brandBar}>
+        <View style={[styles.brandDot, { backgroundColor: colors.orange }]} />
+        <View style={[styles.brandDot, { backgroundColor: colors.blue }]} />
+        <View style={[styles.brandDot, { backgroundColor: colors.green }]} />
+      </View>
     </ScrollView>
   );
 }
@@ -128,36 +181,27 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#e8e4df',
   },
   glassSection: {
     marginHorizontal: 16,
     marginTop: 16,
     padding: 16,
-    borderRadius: 16,
+    borderRadius: borderRadius.lg,
     overflow: 'hidden',
   },
   section: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
     marginHorizontal: 16,
     marginTop: 16,
     padding: 16,
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    borderRadius: borderRadius.lg,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#111827',
     marginBottom: 4,
   },
   sectionDescription: {
     fontSize: 13,
-    color: '#6b7280',
     marginBottom: 12,
   },
   inputRow: {
@@ -168,33 +212,25 @@ const styles = StyleSheet.create({
   input: {
     flex: 1,
     borderWidth: 1,
-    borderColor: 'rgba(209, 213, 219, 0.8)',
-    borderRadius: 10,
+    borderRadius: borderRadius.sm,
     paddingHorizontal: 12,
     paddingVertical: 10,
     fontSize: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
-    color: '#111827',
   },
   urlInput: {
     fontSize: 14,
   },
   suffix: {
     fontSize: 16,
-    color: '#6b7280',
     marginRight: 8,
   },
   button: {
-    backgroundColor: '#2563eb',
     paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 10,
-  },
-  buttonDisabled: {
-    backgroundColor: '#9ca3af',
+    borderRadius: borderRadius.sm,
   },
   buttonText: {
-    color: '#fff',
+    color: '#faf9f5',
     fontWeight: '600',
     fontSize: 14,
   },
@@ -202,19 +238,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(243, 244, 246, 0.6)',
     padding: 12,
-    borderRadius: 10,
+    borderRadius: borderRadius.sm,
   },
   urlText: {
     flex: 1,
     fontSize: 14,
-    color: '#374151',
     marginRight: 8,
   },
   editText: {
     fontSize: 14,
-    color: '#2563eb',
     fontWeight: '500',
   },
   aboutRow: {
@@ -222,18 +255,26 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(243, 244, 246, 0.6)',
   },
   aboutRowLast: {
     borderBottomWidth: 0,
   },
   aboutLabel: {
     fontSize: 14,
-    color: '#6b7280',
   },
   aboutValue: {
     fontSize: 14,
-    color: '#111827',
     fontWeight: '500',
+  },
+  brandBar: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+    marginVertical: 32,
+  },
+  brandDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
 });
