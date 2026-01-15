@@ -1,68 +1,62 @@
-import { View, FlatList, RefreshControl, StyleSheet, Pressable, Text, Platform, ImageBackground } from 'react-native';
-import { Link } from 'expo-router';
-import { GlassContainer, isGlassEffectAPIAvailable } from 'expo-glass-effect';
+import { View, FlatList, RefreshControl, StyleSheet, Pressable, Text } from 'react-native';
 import { useTasks } from '../../hooks/useTasks';
 import { useUsage } from '../../hooks/useUsage';
 import { TaskCard } from '../../components/TaskCard';
 import { UsageBar } from '../../components/UsageBar';
-
-const useGlass = Platform.OS === 'ios' && isGlassEffectAPIAvailable();
+import { useTheme } from '../../lib/ThemeContext';
+import { borderRadius } from '../../lib/theme';
 
 export default function TasksScreen() {
   const { data, isLoading, refetch, error } = useTasks();
   const { data: usage } = useUsage();
+  const { colors } = useTheme();
 
   if (error) {
     return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>Failed to load tasks</Text>
-        <Text style={styles.errorDetail}>{error.message}</Text>
-        <Pressable style={styles.retryButton} onPress={() => refetch()}>
+      <View style={[styles.centered, { backgroundColor: colors.background }]}>
+        <Text style={[styles.errorText, { color: colors.error }]}>Failed to load tasks</Text>
+        <Text style={[styles.errorDetail, { color: colors.textSecondary }]}>{error.message}</Text>
+        <Pressable
+          style={({ pressed }) => [
+            styles.retryButton,
+            { backgroundColor: colors.orange },
+            pressed && { backgroundColor: '#c46648' }
+          ]}
+          onPress={() => refetch()}
+        >
           <Text style={styles.retryText}>Retry</Text>
         </Pressable>
       </View>
     );
   }
 
-  const ListWrapper = useGlass ? GlassContainer : View;
-
-  const listContent = (
-    <FlatList
-      data={data?.tasks ?? []}
-      keyExtractor={(item) => item.id.toString()}
-      renderItem={({ item }) => <TaskCard task={item} />}
-      ListHeaderComponent={usage ? <UsageBar usage={usage} /> : null}
-      refreshControl={
-        <RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor="#6b7280" />
-      }
-      ListEmptyComponent={
-        !isLoading ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyIcon}>&#128203;</Text>
-            <Text style={styles.emptyTitle}>No Tasks</Text>
-            <Text style={styles.emptyText}>Create your first task to get started</Text>
-          </View>
-        ) : null
-      }
-      contentContainerStyle={styles.list}
-    />
-  );
-
   return (
-    <View style={styles.container}>
-      {useGlass ? (
-        <ListWrapper style={styles.glassWrapper} spacing={20}>
-          {listContent}
-        </ListWrapper>
-      ) : (
-        listContent
-      )}
-
-      <Link href="/task/new" asChild>
-        <Pressable style={styles.fab}>
-          <Text style={styles.fabText}>+</Text>
-        </Pressable>
-      </Link>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <FlatList
+        data={data?.tasks ?? []}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={({ item }) => <TaskCard task={item} />}
+        ListHeaderComponent={usage ? <UsageBar usage={usage} /> : null}
+        refreshControl={
+          <RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={colors.textMuted} />
+        }
+        ListEmptyComponent={
+          !isLoading ? (
+            <View style={styles.empty}>
+              <View style={styles.emptyIconContainer}>
+                <View style={[styles.emptyRing1, { borderColor: colors.surfaceSecondary }]} />
+                <View style={[styles.emptyRing2, { borderColor: colors.textMuted }]} />
+                <View style={[styles.emptyDot, { backgroundColor: colors.orange }]} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: colors.textPrimary }]}>No Tasks</Text>
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                Create your first task to get started
+              </Text>
+            </View>
+          ) : null
+        }
+        contentContainerStyle={styles.list}
+      />
     </View>
   );
 }
@@ -70,41 +64,33 @@ export default function TasksScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#e8e4df',
-  },
-  glassWrapper: {
-    flex: 1,
   },
   list: {
-    paddingBottom: 100,
+    paddingBottom: 140,
   },
   centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
-    backgroundColor: '#e8e4df',
   },
   errorText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#ef4444',
     marginBottom: 8,
   },
   errorDetail: {
     fontSize: 14,
-    color: '#6b7280',
     marginBottom: 16,
     textAlign: 'center',
   },
   retryButton: {
-    backgroundColor: '#2563eb',
     paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 12,
+    borderRadius: borderRadius.md,
   },
   retryText: {
-    color: '#fff',
+    color: '#faf9f5',
     fontWeight: '600',
   },
   empty: {
@@ -112,40 +98,38 @@ const styles = StyleSheet.create({
     padding: 40,
     marginTop: 40,
   },
-  emptyIcon: {
-    fontSize: 48,
-    marginBottom: 16,
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  emptyRing1: {
+    position: 'absolute',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 2,
+  },
+  emptyRing2: {
+    position: 'absolute',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+  },
+  emptyDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
   },
   emptyTitle: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#374151',
     marginBottom: 8,
   },
   emptyText: {
     fontSize: 14,
-    color: '#6b7280',
-  },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    bottom: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#2563eb',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  fabText: {
-    fontSize: 28,
-    color: '#fff',
-    fontWeight: '300',
-    marginTop: -2,
   },
 });
