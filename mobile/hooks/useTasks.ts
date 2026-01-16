@@ -80,6 +80,8 @@ export function useRunTask() {
   return useMutation({
     mutationFn: (id: number) => apiClient.runTask(id),
     onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['tasks', id] });
       queryClient.invalidateQueries({ queryKey: ['tasks', id, 'runs'] });
     },
   });

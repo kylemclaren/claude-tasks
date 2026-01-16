@@ -12,14 +12,13 @@ import type {
 } from './types';
 
 const API_BASE_KEY = 'claude_tasks_api_base';
-const DEFAULT_API_BASE = 'https://clawdbot-dvft.sprites.app';
+const AUTH_TOKEN_KEY = 'claude_tasks_auth_token';
 
-export async function getApiBase(): Promise<string> {
+export async function getApiBase(): Promise<string | null> {
   try {
-    const stored = await SecureStore.getItemAsync(API_BASE_KEY);
-    return stored || DEFAULT_API_BASE;
+    return await SecureStore.getItemAsync(API_BASE_KEY);
   } catch {
-    return DEFAULT_API_BASE;
+    return null;
   }
 }
 
@@ -28,13 +27,37 @@ export async function setApiBase(url: string): Promise<void> {
   apiClient.baseUrl = url;
 }
 
+export async function getAuthToken(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export async function setAuthToken(token: string): Promise<void> {
+  if (token) {
+    await SecureStore.setItemAsync(AUTH_TOKEN_KEY, token);
+  } else {
+    await SecureStore.deleteItemAsync(AUTH_TOKEN_KEY);
+  }
+  apiClient.authToken = token || null;
+}
+
+export async function isApiConfigured(): Promise<boolean> {
+  const url = await getApiBase();
+  return url !== null && url.length > 0;
+}
+
 class ApiClient {
   baseUrl: string = '';
+  authToken: string | null = null;
   private initialized: boolean = false;
 
   async init(): Promise<void> {
     if (!this.initialized) {
-      this.baseUrl = await getApiBase();
+      this.baseUrl = await getApiBase() || '';
+      this.authToken = await getAuthToken();
       this.initialized = true;
     }
   }
@@ -47,13 +70,25 @@ class ApiClient {
       await this.init();
     }
 
+    if (!this.baseUrl) {
+      throw new Error('API URL not configured');
+    }
+
     const url = `${this.baseUrl}/api/v1${endpoint}`;
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+
+    if (this.authToken) {
+      headers['Authorization'] = `Bearer ${this.authToken}`;
+    }
 
     const response = await fetch(url, {
       ...options,
       headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
+        ...headers,
         ...options.headers,
       },
     });

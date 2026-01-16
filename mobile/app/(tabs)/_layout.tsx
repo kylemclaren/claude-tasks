@@ -34,13 +34,21 @@ function SettingsIcon({ focused, color }: { focused: boolean; color: string }) {
   );
 }
 
-function TasksHeaderRight() {
-  const { data: usage } = useUsage();
+function TasksHeaderLeft() {
   const { data: tasksData } = useTasks();
 
   return (
-    <View style={styles.headerRight}>
+    <View style={styles.headerLeft}>
       {tasksData?.tasks && <RunningTasksIndicator tasks={tasksData.tasks} />}
+    </View>
+  );
+}
+
+function TasksHeaderRight() {
+  const { data: usage } = useUsage();
+
+  return (
+    <View style={styles.headerRight}>
       {usage && <UsageBatteryIndicator usage={usage} />}
     </View>
   );
@@ -202,6 +210,7 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Tasks',
+          headerLeft: () => <TasksHeaderLeft />,
           headerRight: () => <TasksHeaderRight />,
         }}
       />
@@ -220,9 +229,16 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 16,
+    paddingVertical: 8,
+  },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: 8,
   },
   floatingBarContainer: {
     position: 'absolute',

@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useSettings, useUpdateSettings } from '../../hooks/useSettings';
 import { useUsage } from '../../hooks/useUsage';
-import { getApiBase, setApiBase } from '../../lib/api';
+import { getApiBase, setApiBase, getAuthToken, setAuthToken } from '../../lib/api';
 import { UsageBar } from '../../components/UsageBar';
 import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/ToastContext';
@@ -20,7 +20,10 @@ export default function SettingsScreen() {
 
   const [threshold, setThreshold] = useState('80');
   const [apiUrl, setApiUrl] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
+  const [authToken, setAuthTokenState] = useState('');
+  const [hasToken, setHasToken] = useState(false);
+  const [isEditingUrl, setIsEditingUrl] = useState(false);
+  const [isEditingToken, setIsEditingToken] = useState(false);
 
   useEffect(() => {
     if (settings) {
@@ -29,7 +32,11 @@ export default function SettingsScreen() {
   }, [settings]);
 
   useEffect(() => {
-    getApiBase().then(setApiUrl);
+    getApiBase().then((url) => setApiUrl(url || ''));
+    getAuthToken().then((token) => {
+      setHasToken(!!token);
+      // Don't expose the actual token value for security
+    });
   }, []);
 
   const handleSaveThreshold = () => {
@@ -50,10 +57,32 @@ export default function SettingsScreen() {
   const handleSaveApiUrl = async () => {
     try {
       await setApiBase(apiUrl);
-      setIsEditing(false);
+      setIsEditingUrl(false);
       showToast('API URL updated');
     } catch (error) {
       showToast('Failed to save API URL', 'error');
+    }
+  };
+
+  const handleSaveToken = async () => {
+    try {
+      await setAuthToken(authToken);
+      setHasToken(!!authToken);
+      setIsEditingToken(false);
+      setAuthTokenState('');
+      showToast(authToken ? 'Auth token updated' : 'Auth token removed');
+    } catch (error) {
+      showToast('Failed to save auth token', 'error');
+    }
+  };
+
+  const handleClearToken = async () => {
+    try {
+      await setAuthToken('');
+      setHasToken(false);
+      showToast('Auth token removed');
+    } catch (error) {
+      showToast('Failed to remove auth token', 'error');
     }
   };
 
@@ -104,10 +133,10 @@ export default function SettingsScreen() {
       <CardWrapper style={sectionStyle} {...(useGlass && { glassEffectStyle: 'regular' })}>
         <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>API Server</Text>
         <Text style={[styles.sectionDescription, { color: colors.textSecondary }]}>
-          The Sprite URL for the Claude Tasks API
+          The URL of your Claude Tasks server
         </Text>
 
-        {isEditing ? (
+        {isEditingUrl ? (
           <View style={styles.inputRow}>
             <TextInput
               style={[styles.input, styles.urlInput, {
@@ -119,7 +148,7 @@ export default function SettingsScreen() {
               onChangeText={setApiUrl}
               autoCapitalize="none"
               autoCorrect={false}
-              placeholder="https://your-sprite.sprites.app"
+              placeholder="https://your-server.example.com"
               placeholderTextColor={colors.textMuted}
             />
             <Pressable
@@ -136,12 +165,68 @@ export default function SettingsScreen() {
         ) : (
           <Pressable
             style={[styles.urlDisplay, { backgroundColor: colors.surfaceSecondary }]}
-            onPress={() => setIsEditing(true)}
+            onPress={() => setIsEditingUrl(true)}
           >
             <Text style={[styles.urlText, { color: colors.textSecondary }]} numberOfLines={1}>
               {apiUrl}
             </Text>
             <Text style={[styles.editText, { color: colors.orange }]}>Edit</Text>
+          </Pressable>
+        )}
+      </CardWrapper>
+
+      <CardWrapper style={sectionStyle} {...(useGlass && { glassEffectStyle: 'regular' })}>
+        <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>Auth Token</Text>
+        <Text style={[styles.sectionDescription, { color: colors.textSecondary }]}>
+          Optional Bearer token for authentication
+        </Text>
+
+        {isEditingToken ? (
+          <View style={styles.inputRow}>
+            <TextInput
+              style={[styles.input, styles.urlInput, {
+                borderColor: colors.border,
+                backgroundColor: colors.inputBackground,
+                color: colors.textPrimary
+              }]}
+              value={authToken}
+              onChangeText={setAuthTokenState}
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry
+              placeholder="Enter token"
+              placeholderTextColor={colors.textMuted}
+            />
+            <Pressable
+              style={({ pressed }) => [
+                styles.button,
+                { backgroundColor: colors.orange },
+                pressed && { backgroundColor: '#c46648' }
+              ]}
+              onPress={handleSaveToken}
+            >
+              <Text style={styles.buttonText}>Save</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable
+            style={[styles.urlDisplay, { backgroundColor: colors.surfaceSecondary }]}
+            onPress={() => setIsEditingToken(true)}
+          >
+            <Text style={[styles.urlText, { color: colors.textSecondary }]}>
+              {hasToken ? '••••••••••••' : 'Not configured'}
+            </Text>
+            <Text style={[styles.editText, { color: colors.orange }]}>
+              {hasToken ? 'Change' : 'Add'}
+            </Text>
+          </Pressable>
+        )}
+        {hasToken && !isEditingToken && (
+          <Pressable
+            style={[styles.clearButton, { borderColor: colors.border }]}
+            onPress={handleClearToken}
+          >
+            <Text style={[styles.clearButtonText, { color: colors.error }]}>Remove Token</Text>
           </Pressable>
         )}
       </CardWrapper>
@@ -176,12 +261,8 @@ export default function SettingsScreen() {
         </View>
       </CardWrapper>
 
-      {/* Brand accent bar */}
-      <View style={styles.brandBar}>
-        <View style={[styles.brandDot, { backgroundColor: colors.orange }]} />
-        <View style={[styles.brandDot, { backgroundColor: colors.blue }]} />
-        <View style={[styles.brandDot, { backgroundColor: colors.green }]} />
-      </View>
+      {/* Bottom spacer */}
+      <View style={styles.bottomSpacer} />
     </ScrollView>
   );
 }
@@ -258,6 +339,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
+  clearButton: {
+    marginTop: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderRadius: borderRadius.sm,
+    alignItems: 'center',
+  },
+  clearButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
   aboutRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -274,15 +366,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
   },
-  brandBar: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 12,
-    marginVertical: 32,
-  },
-  brandDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  bottomSpacer: {
+    height: 32,
   },
 });

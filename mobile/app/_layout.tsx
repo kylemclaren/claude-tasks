@@ -6,8 +6,10 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreenModule from 'expo-splash-screen';
 import { SplashScreen } from '../components/SplashScreen';
+import { SetupScreen } from '../components/SetupScreen';
 import { ThemeProvider, useTheme } from '../lib/ThemeContext';
 import { ToastProvider } from '../lib/ToastContext';
+import { isApiConfigured } from '../lib/api';
 
 // Keep the native splash screen visible while we show our custom one
 SplashScreenModule.preventAutoHideAsync();
@@ -24,20 +26,39 @@ const queryClient = new QueryClient({
 function RootLayoutContent() {
   const [showSplash, setShowSplash] = useState(true);
   const [appIsReady, setAppIsReady] = useState(false);
+  const [needsSetup, setNeedsSetup] = useState<boolean | null>(null);
   const { colors, isDark } = useTheme();
 
   useEffect(() => {
-    // Hide native splash screen immediately so we can show our custom one
-    SplashScreenModule.hideAsync();
-    setAppIsReady(true);
+    async function checkConfig() {
+      const configured = await isApiConfigured();
+      setNeedsSetup(!configured);
+      // Hide native splash screen immediately so we can show our custom one
+      SplashScreenModule.hideAsync();
+      setAppIsReady(true);
+    }
+    checkConfig();
   }, []);
 
   const handleSplashComplete = useCallback(() => {
     setShowSplash(false);
   }, []);
 
-  if (!appIsReady) {
+  const handleSetupComplete = useCallback(() => {
+    setNeedsSetup(false);
+  }, []);
+
+  if (!appIsReady || needsSetup === null) {
     return null;
+  }
+
+  if (needsSetup && !showSplash) {
+    return (
+      <>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <SetupScreen onComplete={handleSetupComplete} />
+      </>
+    );
   }
 
   return (
