@@ -67,34 +67,29 @@ func (s *Server) setupRoutes() {
 	r.Use(middleware.Recoverer)
 	r.Use(CORS)
 
-	// API routes
-	r.Route("/api/v1", func(r chi.Router) {
-		// Health check
-		r.Get("/health", s.HealthCheck)
+	// API routes - all at top level to avoid chi subrouter issues with multiple params
+	r.Get("/api/v1/health", s.HealthCheck)
 
-		// Tasks
-		r.Route("/tasks", func(r chi.Router) {
-			r.Get("/", s.ListTasks)
-			r.Post("/", s.CreateTask)
-			r.Get("/{id}", s.GetTask)
-			r.Put("/{id}", s.UpdateTask)
-			r.Delete("/{id}", s.DeleteTask)
-			r.Post("/{id}/toggle", s.ToggleTask)
-			r.Post("/{id}/run", s.RunTask)
-			r.Post("/{id}/run/streaming", s.RunTaskStreaming) // Start task with streaming, returns run ID
-			r.Get("/{id}/runs", s.GetTaskRuns)
-			r.Get("/{id}/runs/latest", s.GetLatestTaskRun)
-			r.Get("/{id}/runs/{runId}", s.GetTaskRunByID)         // Get specific run
-			r.Get("/{id}/runs/{runId}/stream", s.StreamTaskRun)   // SSE endpoint for streaming output
-		})
+	// Tasks
+	r.Get("/api/v1/tasks", s.ListTasks)
+	r.Post("/api/v1/tasks", s.CreateTask)
+	r.Get("/api/v1/tasks/{id}", s.GetTask)
+	r.Put("/api/v1/tasks/{id}", s.UpdateTask)
+	r.Delete("/api/v1/tasks/{id}", s.DeleteTask)
+	r.Post("/api/v1/tasks/{id}/toggle", s.ToggleTask)
+	r.Post("/api/v1/tasks/{id}/run", s.RunTask)
+	r.Post("/api/v1/tasks/{id}/run/streaming", s.RunTaskStreaming)
+	r.Get("/api/v1/tasks/{id}/runs", s.GetTaskRuns)
+	r.Get("/api/v1/tasks/{id}/runs/latest", s.GetLatestTaskRun)
+	r.Get("/api/v1/tasks/{id}/runs/{runId}", s.GetTaskRunByID)
+	r.Get("/api/v1/tasks/{id}/runs/{runId}/stream", s.StreamTaskRun)
 
-		// Settings
-		r.Get("/settings", s.GetSettings)
-		r.Put("/settings", s.UpdateSettings)
+	// Settings
+	r.Get("/api/v1/settings", s.GetSettings)
+	r.Put("/api/v1/settings", s.UpdateSettings)
 
-		// Usage
-		r.Get("/usage", s.GetUsage)
-	})
+	// Usage
+	r.Get("/api/v1/usage", s.GetUsage)
 }
 
 // Router returns the chi router for use with http.Server
