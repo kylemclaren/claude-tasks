@@ -294,3 +294,54 @@ func (db *DB) GetLastRunStatuses() (map[int64]RunStatus, error) {
 	}
 	return statuses, rows.Err()
 }
+
+// GetTaskRun retrieves a specific task run by ID
+func (db *DB) GetTaskRun(runID int64) (*TaskRun, error) {
+	run := &TaskRun{}
+	err := db.conn.QueryRow(`
+		SELECT id, task_id, started_at, ended_at, status, output, error
+		FROM task_runs WHERE id = ?
+	`, runID).Scan(&run.ID, &run.TaskID, &run.StartedAt, &run.EndedAt, &run.Status, &run.Output, &run.Error)
+	if err != nil {
+		return nil, err
+	}
+	return run, nil
+}
+
+// GetRunningRuns retrieves all task runs that are currently in "running" status
+// This is useful for cleaning up stale runs on startup
+func (db *DB) GetRunningRuns() ([]*TaskRun, error) {
+	rows, err := db.conn.Query(`
+		SELECT id, task_id, started_at, ended_at, status, output, error
+		FROM task_runs WHERE status = ?
+	`, RunStatusRunning)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var runs []*TaskRun
+	for rows.Next() {
+		run := &TaskRun{}
+		err := rows.Scan(&run.ID, &run.TaskID, &run.StartedAt, &run.EndedAt, &run.Status, &run.Output, &run.Error)
+		if err != nil {
+			return nil, err
+		}
+		runs = append(runs, run)
+	}
+	return runs, rows.Err()
+}
+
+// MarkStaleRunsAsFailed marks all "running" task runs as failed
+// This is called on startup to clean up runs that were interrupted by server restart
+func (db *DB) MarkStaleRunsAsFailed() (int64, error) {
+	result, err := db.conn.Exec(`
+		UPDATE task_runs
+		SET status = ?, error = 'Server restarted during execution', ended_at = CURRENT_TIMESTAMP
+		WHERE status = ?
+	`, RunStatusFailed, RunStatusRunning)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}

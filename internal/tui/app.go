@@ -665,6 +665,7 @@ type thresholdSavedMsg struct{ threshold float64 }
 type lastRunStatusesMsg struct{ statuses map[int64]db.RunStatus }
 type errMsg struct{ err error }
 type tickMsg time.Time
+type fastTickMsg time.Time // Fast tick for streaming output view
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
@@ -688,6 +689,13 @@ func (m *Model) fetchUsage() tea.Cmd {
 func tickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)
+	})
+}
+
+// fastTickCmd provides faster updates (500ms) for viewing running task output
+func fastTickCmd() tea.Cmd {
+	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
+		return fastTickMsg(t)
 	})
 }
 
@@ -813,6 +821,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		cmds = append(cmds, tickCmd(), m.checkRunningTasks(), m.fetchUsage(), m.fetchLastRunStatuses())
 
+	case fastTickMsg:
+		// Fast polling for output view when viewing a running task
+		if m.currentView == ViewOutput && m.selectedTask != nil {
+			// Check if the task is still running
+			if m.runningTasks[m.selectedTask.ID] {
+				// Reload task runs to get updated output
+				cmds = append(cmds, m.loadTaskRuns(m.selectedTask.ID), fastTickCmd())
+			}
+		}
+
 	case tasksLoadedMsg:
 		m.tasks = msg.tasks
 		if m.scheduler != nil {
@@ -867,8 +885,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case taskRunsLoadedMsg:
 		m.taskRuns = msg.runs
+		oldYOffset := m.viewport.YOffset
 		m.viewport.SetContent(m.renderOutputContent())
-		m.viewport.GotoTop()
+		// If we were at the bottom or near it, stay at bottom for streaming output
+		// Otherwise preserve scroll position
+		if oldYOffset >= m.viewport.TotalLineCount()-m.viewport.Height-3 {
+			m.viewport.GotoBottom()
+		} else if oldYOffset == 0 {
+			// First load - go to top
+			m.viewport.GotoTop()
+		}
 
 	case errMsg:
 		m.setStatus("Error: "+msg.err.Error(), true)
@@ -1016,6 +1042,10 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if idx < len(tasksToUse) {
 				m.selectedTask = tasksToUse[idx]
 				m.currentView = ViewOutput
+				// Start fast tick if the task is running for real-time output updates
+				if m.runningTasks[m.selectedTask.ID] {
+					return m, tea.Batch(m.loadTaskRuns(m.selectedTask.ID), fastTickCmd())
+				}
 				return m, m.loadTaskRuns(m.selectedTask.ID)
 			}
 		}

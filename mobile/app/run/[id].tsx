@@ -1,9 +1,10 @@
-import { View, Text, ScrollView, StyleSheet, Platform } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Platform, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { useTheme } from '../../lib/ThemeContext';
 import { getStatusColor, borderRadius, spacing } from '../../lib/theme';
 import { MarkdownViewer } from '../../components/MarkdownViewer';
+import { useStreamingRun } from '../../hooks/useStreamingRun';
 import type { TaskRun } from '../../lib/types';
 
 const useGlass = Platform.OS === 'ios' && typeof isLiquidGlassAvailable === 'function' && isLiquidGlassAvailable();
@@ -14,18 +15,33 @@ export default function RunOutputScreen() {
 
   // Extract params with proper typing
   const id = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : '';
+  const taskId = typeof params.taskId === 'string' ? parseInt(params.taskId, 10) : 0;
   const taskName = typeof params.taskName === 'string' ? params.taskName : undefined;
-  const status = (typeof params.status === 'string' ? params.status : 'completed') as TaskRun['status'];
-  const output = typeof params.output === 'string' ? params.output : '';
-  const error = typeof params.error === 'string' ? params.error : undefined;
+  const initialStatus = (typeof params.status === 'string' ? params.status : 'completed') as TaskRun['status'];
+  const initialOutput = typeof params.output === 'string' ? params.output : '';
+  const initialError = typeof params.error === 'string' ? params.error : undefined;
   const started_at = typeof params.started_at === 'string' ? params.started_at : '';
   const ended_at = typeof params.ended_at === 'string' ? params.ended_at : undefined;
   const duration_ms = typeof params.duration_ms === 'string' ? parseInt(params.duration_ms, 10) : undefined;
 
-  // Reconstruct run object from params
+  // Use streaming hook for running tasks
+  const isRunning = initialStatus === 'running';
+  const runId = parseInt(id, 10);
+  const streamingResult = useStreamingRun({
+    taskId,
+    runId,
+    enabled: isRunning && taskId > 0 && runId > 0,
+  });
+
+  // Use streaming data if available, otherwise use initial params
+  const output = isRunning && streamingResult.output ? streamingResult.output : initialOutput;
+  const status = isRunning ? streamingResult.status : initialStatus;
+  const error = isRunning ? streamingResult.error : initialError;
+
+  // Reconstruct run object from params/streaming
   const run: TaskRun | null = id ? {
-    id: parseInt(id, 10),
-    task_id: 0,
+    id: runId,
+    task_id: taskId,
     status,
     output,
     error,
@@ -95,13 +111,18 @@ export default function RunOutputScreen() {
         )}
         <View style={styles.metaRow}>
           <View style={styles.statusContainer}>
-            <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+            {streamingResult.isStreaming ? (
+              <ActivityIndicator size="small" color={statusColor} style={styles.streamingIndicator} />
+            ) : (
+              <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+            )}
             <Text style={[styles.statusText, { color: statusColor }]}>
               {run.status.charAt(0).toUpperCase() + run.status.slice(1)}
+              {streamingResult.isStreaming && ' (streaming...)'}
             </Text>
           </View>
           <Text style={[styles.duration, { color: colors.textSecondary }]}>
-            {formatDuration(run.duration_ms)}
+            {run.status === 'running' ? 'In progress' : formatDuration(run.duration_ms)}
           </Text>
         </View>
         <Text style={[styles.date, { color: colors.textMuted }]}>
@@ -182,6 +203,9 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
+    marginRight: spacing.sm,
+  },
+  streamingIndicator: {
     marginRight: spacing.sm,
   },
   statusText: {

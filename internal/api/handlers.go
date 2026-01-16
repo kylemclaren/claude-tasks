@@ -1,7 +1,11 @@
 package api
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -459,3 +463,213 @@ const (
 	errEmptyPrompt validationError = "Prompt is required"
 	errInvalidCron validationError = "Invalid cron expression"
 )
+
+// GetTaskRunByID handles GET /api/v1/tasks/{id}/runs/{runId}
+func (s *Server) GetTaskRunByID(w http.ResponseWriter, r *http.Request) {
+	taskID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		s.errorResponse(w, http.StatusBadRequest, "Invalid task ID", err)
+		return
+	}
+
+	runID, err := strconv.ParseInt(chi.URLParam(r, "runId"), 10, 64)
+	if err != nil {
+		s.errorResponse(w, http.StatusBadRequest, "Invalid run ID", err)
+		return
+	}
+
+	// Check task exists
+	_, err = s.db.GetTask(taskID)
+	if err != nil {
+		s.errorResponse(w, http.StatusNotFound, "Task not found", err)
+		return
+	}
+
+	run, err := s.db.GetTaskRun(runID)
+	if err != nil {
+		s.errorResponse(w, http.StatusNotFound, "Run not found", err)
+		return
+	}
+
+	// Verify run belongs to task
+	if run.TaskID != taskID {
+		s.errorResponse(w, http.StatusNotFound, "Run not found for this task", nil)
+		return
+	}
+
+	s.jsonResponse(w, http.StatusOK, s.taskRunToResponse(run))
+}
+
+// RunTaskStreaming handles POST /api/v1/tasks/{id}/run/streaming
+// Starts task execution and returns the run ID immediately for streaming
+func (s *Server) RunTaskStreaming(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		s.errorResponse(w, http.StatusBadRequest, "Invalid task ID", err)
+		return
+	}
+
+	task, err := s.db.GetTask(id)
+	if err != nil {
+		s.errorResponse(w, http.StatusNotFound, "Task not found", err)
+		return
+	}
+
+	// Create task run record first so we have an ID for the client to subscribe to
+	run := &db.TaskRun{
+		TaskID:    task.ID,
+		StartedAt: time.Now(),
+		Status:    db.RunStatusRunning,
+	}
+	if err := s.db.CreateTaskRun(run); err != nil {
+		s.errorResponse(w, http.StatusInternalServerError, "Failed to create run record", err)
+		return
+	}
+
+	// Execute asynchronously using the pre-created run record
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+		s.executor.ExecuteWithRun(ctx, task, run)
+	}()
+
+	s.jsonResponse(w, http.StatusAccepted, StreamingRunResponse{
+		RunID:   run.ID,
+		TaskID:  task.ID,
+		Status:  "running",
+		Message: "Task execution started, connect to stream endpoint for real-time output",
+	})
+}
+
+// StreamTaskRun handles GET /api/v1/tasks/{id}/runs/{runId}/stream
+// Server-Sent Events endpoint for streaming task output in real-time
+func (s *Server) StreamTaskRun(w http.ResponseWriter, r *http.Request) {
+	taskID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		s.errorResponse(w, http.StatusBadRequest, "Invalid task ID", err)
+		return
+	}
+
+	runID, err := strconv.ParseInt(chi.URLParam(r, "runId"), 10, 64)
+	if err != nil {
+		s.errorResponse(w, http.StatusBadRequest, "Invalid run ID", err)
+		return
+	}
+
+	// Check task exists
+	_, err = s.db.GetTask(taskID)
+	if err != nil {
+		s.errorResponse(w, http.StatusNotFound, "Task not found", err)
+		return
+	}
+
+	// Check run exists and belongs to task
+	run, err := s.db.GetTaskRun(runID)
+	if err != nil {
+		s.errorResponse(w, http.StatusNotFound, "Run not found", err)
+		return
+	}
+	if run.TaskID != taskID {
+		s.errorResponse(w, http.StatusNotFound, "Run not found for this task", nil)
+		return
+	}
+
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		s.errorResponse(w, http.StatusInternalServerError, "Streaming not supported", nil)
+		return
+	}
+
+	// Generate unique client ID
+	clientID := generateClientID()
+
+	// If run is already completed, send current output and complete event
+	if run.Status == db.RunStatusCompleted || run.Status == db.RunStatusFailed {
+		// Send accumulated output
+		if run.Output != "" {
+			s.writeSSEEvent(w, "output", SSEOutputChunk{
+				RunID:     runID,
+				Text:      run.Output,
+				Timestamp: run.StartedAt.Format(time.RFC3339),
+			})
+			flusher.Flush()
+		}
+
+		// Send completion event
+		s.writeSSEEvent(w, "complete", SSECompletionEvent{
+			RunID:  runID,
+			Status: string(run.Status),
+			Error:  run.Error,
+		})
+		flusher.Flush()
+		return
+	}
+
+	// Subscribe to stream
+	client := s.streamMgr.Subscribe(runID, clientID)
+	defer s.streamMgr.Unsubscribe(runID, clientID)
+
+	// Send any existing output from the database first
+	if run.Output != "" {
+		s.writeSSEEvent(w, "output", SSEOutputChunk{
+			RunID:     runID,
+			Text:      run.Output,
+			Timestamp: run.StartedAt.Format(time.RFC3339),
+		})
+		flusher.Flush()
+	}
+
+	// Stream events until completion or client disconnect
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			// Client disconnected
+			return
+		case chunk := <-client.Chunks:
+			s.writeSSEEvent(w, "output", SSEOutputChunk{
+				RunID:     chunk.RunID,
+				Text:      chunk.Text,
+				Timestamp: chunk.Timestamp.Format(time.RFC3339),
+				IsError:   chunk.IsError,
+			})
+			flusher.Flush()
+		case completion := <-client.Complete:
+			s.writeSSEEvent(w, "complete", SSECompletionEvent{
+				RunID:  completion.RunID,
+				Status: completion.Status,
+				Error:  completion.Error,
+			})
+			flusher.Flush()
+			return
+		case <-client.Done:
+			// Stream manager closed the client
+			return
+		}
+	}
+}
+
+// writeSSEEvent writes a Server-Sent Event to the response
+func (s *Server) writeSSEEvent(w http.ResponseWriter, event string, data interface{}) {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, string(jsonData))
+}
+
+// generateClientID creates a unique client ID using crypto/rand
+func generateClientID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp-based ID
+		return fmt.Sprintf("client-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
+}

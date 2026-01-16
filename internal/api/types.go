@@ -97,3 +97,26 @@ type HealthResponse struct {
 	Status  string `json:"status"`
 	Version string `json:"version,omitempty"`
 }
+
+// StreamingRunResponse represents the response when starting a streaming task run
+type StreamingRunResponse struct {
+	RunID   int64  `json:"run_id"`
+	TaskID  int64  `json:"task_id"`
+	Status  string `json:"status"`
+	Message string `json:"message"`
+}
+
+// SSEOutputChunk represents an output chunk sent via SSE
+type SSEOutputChunk struct {
+	RunID     int64  `json:"run_id"`
+	Text      string `json:"text"`
+	Timestamp string `json:"timestamp"`
+	IsError   bool   `json:"is_error,omitempty"`
+}
+
+// SSECompletionEvent represents a completion event sent via SSE
+type SSECompletionEvent struct {
+	RunID  int64  `json:"run_id"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+}

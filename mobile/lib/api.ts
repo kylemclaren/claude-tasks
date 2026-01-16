@@ -9,6 +9,9 @@ import type {
   Usage,
   SuccessResponse,
   HealthResponse,
+  StreamingRunResponse,
+  SSEOutputChunk,
+  SSECompletionEvent,
 } from './types';
 
 const API_BASE_KEY = 'claude_tasks_api_base';
@@ -164,6 +167,114 @@ class ApiClient {
   // Usage
   async getUsage(): Promise<Usage> {
     return this.request('/usage');
+  }
+
+  // Streaming methods
+
+  // Get a specific task run by ID
+  async getTaskRun(taskId: number, runId: number): Promise<TaskRun> {
+    return this.request(`/tasks/${taskId}/runs/${runId}`);
+  }
+
+  // Start a task with streaming and return the run ID immediately
+  async runTaskStreaming(taskId: number): Promise<StreamingRunResponse> {
+    return this.request(`/tasks/${taskId}/run/streaming`, { method: 'POST' });
+  }
+
+  // Get the SSE stream URL for a task run
+  getStreamUrl(taskId: number, runId: number): string {
+    return `${this.baseUrl}/api/v1/tasks/${taskId}/runs/${runId}/stream`;
+  }
+
+  // Subscribe to streaming output for a task run
+  // Returns an EventSource-like interface for SSE events
+  subscribeToRunStream(
+    taskId: number,
+    runId: number,
+    callbacks: {
+      onOutput: (chunk: SSEOutputChunk) => void;
+      onComplete: (event: SSECompletionEvent) => void;
+      onError: (error: Error) => void;
+    }
+  ): { close: () => void } {
+    const url = this.getStreamUrl(taskId, runId);
+
+    // Use EventSource for SSE
+    // Note: React Native doesn't have native EventSource,
+    // we'll use fetch with streaming instead
+    const controller = new AbortController();
+
+    const connect = async () => {
+      try {
+        const headers: Record<string, string> = {
+          Accept: 'text/event-stream',
+        };
+        if (this.authToken) {
+          headers['Authorization'] = `Bearer ${this.authToken}`;
+        }
+
+        const response = await fetch(url, {
+          headers,
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('No response body');
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          let currentEvent = '';
+          let currentData = '';
+
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEvent = line.slice(7).trim();
+            } else if (line.startsWith('data: ')) {
+              currentData = line.slice(6);
+            } else if (line === '' && currentEvent && currentData) {
+              // End of event, process it
+              try {
+                const data = JSON.parse(currentData);
+                if (currentEvent === 'output') {
+                  callbacks.onOutput(data as SSEOutputChunk);
+                } else if (currentEvent === 'complete') {
+                  callbacks.onComplete(data as SSECompletionEvent);
+                }
+              } catch (e) {
+                console.warn('Failed to parse SSE data:', e);
+              }
+              currentEvent = '';
+              currentData = '';
+            }
+          }
+        }
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          callbacks.onError(error as Error);
+        }
+      }
+    };
+
+    connect();
+
+    return {
+      close: () => controller.abort(),
+    };
   }
 }
 

@@ -72,3 +72,24 @@ export interface HealthResponse {
   status: string;
   version?: string;
 }
+
+// Streaming types
+export interface StreamingRunResponse {
+  run_id: number;
+  task_id: number;
+  status: string;
+  message: string;
+}
+
+export interface SSEOutputChunk {
+  run_id: number;
+  text: string;
+  timestamp: string;
+  is_error?: boolean;
+}
+
+export interface SSECompletionEvent {
+  run_id: number;
+  status: string;
+  error?: string;
+}

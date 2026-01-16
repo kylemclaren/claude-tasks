@@ -236,6 +236,7 @@ export default function TaskDetailScreen() {
                   pathname: '/run/[id]',
                   params: {
                     id: run.id.toString(),
+                    taskId: task.id.toString(),
                     taskName: task.name,
                     status: run.status,
                     output: run.output,

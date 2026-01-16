@@ -14,6 +14,7 @@ import (
 	"github.com/kylemclaren/claude-tasks/internal/api"
 	"github.com/kylemclaren/claude-tasks/internal/db"
 	"github.com/kylemclaren/claude-tasks/internal/scheduler"
+	"github.com/kylemclaren/claude-tasks/internal/stream"
 	"github.com/kylemclaren/claude-tasks/internal/tui"
 	"github.com/kylemclaren/claude-tasks/internal/upgrade"
 	"github.com/kylemclaren/claude-tasks/internal/version"
@@ -172,17 +173,23 @@ func runServer() error {
 	}
 	defer database.Close()
 
-	sched := scheduler.New(database)
+	// Create stream manager for real-time output streaming
+	streamMgr := stream.NewManager()
+
+	// Create scheduler with stream manager for streaming support
+	sched := scheduler.NewWithStreamManager(database, streamMgr)
 	if err := sched.Start(); err != nil {
 		return fmt.Errorf("starting scheduler: %w", err)
 	}
 	defer sched.Stop()
 
-	server := api.NewServer(database, sched)
+	// Create API server with shared stream manager
+	server := api.NewServerWithStreamManager(database, sched, streamMgr)
 
 	addr := fmt.Sprintf(":%d", *port)
 	fmt.Printf("claude-tasks API server starting on %s\n", addr)
 	fmt.Printf("Database: %s\n", dbPath)
+	fmt.Println("Streaming output enabled via SSE")
 
 	srv := &http.Server{
 		Addr:    addr,

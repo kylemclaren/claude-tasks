@@ -7,6 +7,7 @@ import (
 
 	"github.com/kylemclaren/claude-tasks/internal/db"
 	"github.com/kylemclaren/claude-tasks/internal/executor"
+	"github.com/kylemclaren/claude-tasks/internal/stream"
 	"github.com/robfig/cron/v3"
 )
 
@@ -15,9 +16,10 @@ type Scheduler struct {
 	cron         *cron.Cron
 	db           *db.DB
 	executor     *executor.Executor
+	streamMgr    *stream.Manager
 	jobs         map[int64]cron.EntryID
-	cronExprs    map[int64]string       // Track cron expressions to detect changes
-	oneOffTimers map[int64]*time.Timer  // Track one-off task timers
+	cronExprs    map[int64]string      // Track cron expressions to detect changes
+	oneOffTimers map[int64]*time.Timer // Track one-off task timers
 	mu           sync.RWMutex
 	running      bool
 	stopSync     chan struct{}
@@ -36,6 +38,31 @@ func New(database *db.DB) *Scheduler {
 	}
 }
 
+// NewWithStreamManager creates a new scheduler with stream manager for real-time output
+func NewWithStreamManager(database *db.DB, streamMgr *stream.Manager) *Scheduler {
+	return &Scheduler{
+		cron:         cron.New(cron.WithSeconds()),
+		db:           database,
+		executor:     executor.NewWithStreamManager(database, streamMgr),
+		streamMgr:    streamMgr,
+		jobs:         make(map[int64]cron.EntryID),
+		cronExprs:    make(map[int64]string),
+		oneOffTimers: make(map[int64]*time.Timer),
+		stopSync:     make(chan struct{}),
+	}
+}
+
+// SetStreamManager sets the stream manager for real-time output
+func (s *Scheduler) SetStreamManager(mgr *stream.Manager) {
+	s.streamMgr = mgr
+	s.executor.SetStreamManager(mgr)
+}
+
+// GetStreamManager returns the stream manager
+func (s *Scheduler) GetStreamManager() *stream.Manager {
+	return s.streamMgr
+}
+
 // Start starts the scheduler and loads existing tasks
 func (s *Scheduler) Start() error {
 	s.mu.Lock()
@@ -43,6 +70,13 @@ func (s *Scheduler) Start() error {
 
 	if s.running {
 		return nil
+	}
+
+	// Clean up any stale "running" task runs from previous server instance
+	if affected, err := s.db.MarkStaleRunsAsFailed(); err != nil {
+		fmt.Printf("Warning: failed to clean up stale runs: %v\n", err)
+	} else if affected > 0 {
+		fmt.Printf("Cleaned up %d stale running task(s) from previous server instance\n", affected)
 	}
 
 	// Load and schedule existing tasks
