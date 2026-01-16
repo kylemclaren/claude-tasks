@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import { View, Text, Pressable, StyleSheet, Platform, Animated, ActionSheetIOS, Alert } from 'react-native';
-import { Link } from 'expo-router';
+import { Link, router } from 'expo-router';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { Swipeable } from 'react-native-gesture-handler';
 import * as Haptics from 'expo-haptics';
@@ -106,6 +106,10 @@ export function TaskCard({ task }: Props) {
     }
   };
 
+  const handleEdit = () => {
+    router.push(`/task/edit/${task.id}`);
+  };
+
   const handleLongPress = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     swipeableRef.current?.close();
@@ -113,20 +117,23 @@ export function TaskCard({ task }: Props) {
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options: ['Cancel', 'Run Now', task.enabled ? 'Disable' : 'Enable', 'Delete'],
+          options: ['Cancel', 'Edit', 'Run Now', task.enabled ? 'Disable' : 'Enable', 'Delete'],
           cancelButtonIndex: 0,
-          destructiveButtonIndex: 3,
+          destructiveButtonIndex: 4,
           title: task.name,
         },
         (buttonIndex) => {
           switch (buttonIndex) {
             case 1:
-              handleRun();
+              handleEdit();
               break;
             case 2:
-              handleToggle();
+              handleRun();
               break;
             case 3:
+              handleToggle();
+              break;
+            case 4:
               confirmDelete();
               break;
           }
@@ -138,6 +145,7 @@ export function TaskCard({ task }: Props) {
         'Choose an action',
         [
           { text: 'Cancel', style: 'cancel' },
+          { text: 'Edit', onPress: handleEdit },
           { text: 'Run Now', onPress: handleRun },
           { text: task.enabled ? 'Disable' : 'Enable', onPress: handleToggle },
           { text: 'Delete', style: 'destructive', onPress: confirmDelete },
