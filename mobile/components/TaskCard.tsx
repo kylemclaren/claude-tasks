@@ -1,9 +1,10 @@
 import { useRef } from 'react';
-import { View, Text, Pressable, StyleSheet, Platform, Animated } from 'react-native';
+import { View, Text, Pressable, StyleSheet, Platform, Animated, ActionSheetIOS, Alert } from 'react-native';
 import { Link } from 'expo-router';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
 import { Swipeable } from 'react-native-gesture-handler';
-import { useToggleTask, useRunTask } from '../hooks/useTasks';
+import * as Haptics from 'expo-haptics';
+import { useToggleTask, useRunTask, useDeleteTask } from '../hooks/useTasks';
 import { useTheme } from '../lib/ThemeContext';
 import { useToast } from '../lib/ToastContext';
 import { getStatusColor, borderRadius, spacing } from '../lib/theme';
@@ -23,6 +24,7 @@ export function TaskCard({ task }: Props) {
   const swipeableRef = useRef<Swipeable>(null);
   const toggleMutation = useToggleTask();
   const runMutation = useRunTask();
+  const deleteMutation = useDeleteTask();
   const { colors, shadows } = useTheme();
   const { showToast } = useToast();
 
@@ -69,6 +71,79 @@ export function TaskCard({ task }: Props) {
       },
     });
     swipeableRef.current?.close();
+  };
+
+  const handleDelete = () => {
+    deleteMutation.mutate(task.id, {
+      onSuccess: () => {
+        showToast(`${task.name} deleted`);
+      },
+      onError: () => {
+        showToast('Failed to delete task', 'error');
+      },
+    });
+  };
+
+  const confirmDelete = () => {
+    if (Platform.OS === 'ios') {
+      Alert.alert(
+        'Delete Task',
+        `Are you sure you want to delete "${task.name}"?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: handleDelete },
+        ]
+      );
+    } else {
+      Alert.alert(
+        'Delete Task',
+        `Are you sure you want to delete "${task.name}"?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', onPress: handleDelete },
+        ]
+      );
+    }
+  };
+
+  const handleLongPress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    swipeableRef.current?.close();
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Run Now', task.enabled ? 'Disable' : 'Enable', 'Delete'],
+          cancelButtonIndex: 0,
+          destructiveButtonIndex: 3,
+          title: task.name,
+        },
+        (buttonIndex) => {
+          switch (buttonIndex) {
+            case 1:
+              handleRun();
+              break;
+            case 2:
+              handleToggle();
+              break;
+            case 3:
+              confirmDelete();
+              break;
+          }
+        }
+      );
+    } else {
+      Alert.alert(
+        task.name,
+        'Choose an action',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Run Now', onPress: handleRun },
+          { text: task.enabled ? 'Disable' : 'Enable', onPress: handleToggle },
+          { text: 'Delete', style: 'destructive', onPress: confirmDelete },
+        ]
+      );
+    }
   };
 
   const renderLeftActions = (
@@ -192,7 +267,7 @@ export function TaskCard({ task }: Props) {
       containerStyle={styles.swipeContainer}
     >
       <Link href={`/task/${task.id}`} asChild>
-        <Pressable>
+        <Pressable onLongPress={handleLongPress} delayLongPress={400}>
           <CardWrapper style={cardStyle} {...(useGlass && { glassEffectStyle: 'regular' })}>
             {content}
           </CardWrapper>

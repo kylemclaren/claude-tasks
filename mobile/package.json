@@ -10,12 +10,10 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.17",
-    "react-native-gesture-handler": "~2.24.0",
-    "react-native-reanimated": "~3.17.4",
-    "react-native-markdown-display": "^7.0.2",
     "expo": "~54.0.31",
     "expo-constants": "~18.0.13",
     "expo-glass-effect": "~0.1.8",
+    "expo-haptics": "~15.0.8",
     "expo-linear-gradient": "~15.0.8",
     "expo-linking": "~8.0.11",
     "expo-router": "~6.0.21",
@@ -24,6 +22,9 @@
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",
     "react-native": "0.81.5",
+    "react-native-gesture-handler": "~2.24.0",
+    "react-native-markdown-display": "^7.0.2",
+    "react-native-reanimated": "~3.17.4",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0"
   },
