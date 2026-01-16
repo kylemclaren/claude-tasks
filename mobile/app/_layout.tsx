@@ -98,6 +98,13 @@ function RootLayoutContent() {
             }}
           />
           <Stack.Screen
+            name="task/edit/[id]"
+            options={{
+              title: 'Edit Task',
+              headerBackTitle: 'Back',
+            }}
+          />
+          <Stack.Screen
             name="run/[id]"
             options={{
               title: 'Run Output',
