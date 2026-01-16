@@ -12,25 +12,27 @@ import (
 
 // Scheduler manages cron jobs for tasks
 type Scheduler struct {
-	cron      *cron.Cron
-	db        *db.DB
-	executor  *executor.Executor
-	jobs      map[int64]cron.EntryID
-	cronExprs map[int64]string // Track cron expressions to detect changes
-	mu        sync.RWMutex
-	running   bool
-	stopSync  chan struct{}
+	cron         *cron.Cron
+	db           *db.DB
+	executor     *executor.Executor
+	jobs         map[int64]cron.EntryID
+	cronExprs    map[int64]string       // Track cron expressions to detect changes
+	oneOffTimers map[int64]*time.Timer  // Track one-off task timers
+	mu           sync.RWMutex
+	running      bool
+	stopSync     chan struct{}
 }
 
 // New creates a new scheduler
 func New(database *db.DB) *Scheduler {
 	return &Scheduler{
-		cron:      cron.New(cron.WithSeconds()),
-		db:        database,
-		executor:  executor.New(database),
-		jobs:      make(map[int64]cron.EntryID),
-		cronExprs: make(map[int64]string),
-		stopSync:  make(chan struct{}),
+		cron:         cron.New(cron.WithSeconds()),
+		db:           database,
+		executor:     executor.New(database),
+		jobs:         make(map[int64]cron.EntryID),
+		cronExprs:    make(map[int64]string),
+		oneOffTimers: make(map[int64]*time.Timer),
+		stopSync:     make(chan struct{}),
 	}
 }
 
@@ -75,6 +77,13 @@ func (s *Scheduler) Stop() {
 		return
 	}
 	s.running = false
+
+	// Cancel all one-off timers
+	for _, timer := range s.oneOffTimers {
+		timer.Stop()
+	}
+	s.oneOffTimers = make(map[int64]*time.Timer)
+
 	s.mu.Unlock()
 
 	// Stop sync loop
@@ -97,9 +106,17 @@ func (s *Scheduler) RemoveTask(taskID int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Remove cron job if exists
 	if entryID, ok := s.jobs[taskID]; ok {
 		s.cron.Remove(entryID)
 		delete(s.jobs, taskID)
+		delete(s.cronExprs, taskID)
+	}
+
+	// Cancel one-off timer if exists
+	if timer, ok := s.oneOffTimers[taskID]; ok {
+		timer.Stop()
+		delete(s.oneOffTimers, taskID)
 	}
 }
 
@@ -117,12 +134,22 @@ func (s *Scheduler) GetNextRunTime(taskID int64) *time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	// Check cron jobs
 	if entryID, ok := s.jobs[taskID]; ok {
 		entry := s.cron.Entry(entryID)
 		if !entry.Next.IsZero() {
 			return &entry.Next
 		}
 	}
+
+	// Check one-off tasks (return from DB since timer doesn't expose time)
+	if _, ok := s.oneOffTimers[taskID]; ok {
+		task, err := s.db.GetTask(taskID)
+		if err == nil && task.NextRunAt != nil {
+			return task.NextRunAt
+		}
+	}
+
 	return nil
 }
 
@@ -132,16 +159,32 @@ func (s *Scheduler) GetAllNextRunTimes() map[int64]time.Time {
 	defer s.mu.RUnlock()
 
 	result := make(map[int64]time.Time)
+
+	// Get cron job next runs
 	for taskID, entryID := range s.jobs {
 		entry := s.cron.Entry(entryID)
 		if !entry.Next.IsZero() {
 			result[taskID] = entry.Next
 		}
 	}
+
+	// Get one-off task next runs from DB
+	for taskID := range s.oneOffTimers {
+		task, err := s.db.GetTask(taskID)
+		if err == nil && task.NextRunAt != nil {
+			result[taskID] = *task.NextRunAt
+		}
+	}
+
 	return result
 }
 
 func (s *Scheduler) scheduleTaskLocked(task *db.Task) error {
+	// Route one-off tasks to separate handler
+	if task.IsOneOff() {
+		return s.scheduleOneOffTaskLocked(task)
+	}
+
 	// Remove existing job if any
 	if entryID, ok := s.jobs[task.ID]; ok {
 		s.cron.Remove(entryID)
@@ -191,6 +234,68 @@ func (s *Scheduler) scheduleTaskLocked(task *db.Task) error {
 	return nil
 }
 
+// scheduleOneOffTaskLocked schedules a one-off task
+func (s *Scheduler) scheduleOneOffTaskLocked(task *db.Task) error {
+	// Cancel existing timer if any
+	if timer, ok := s.oneOffTimers[task.ID]; ok {
+		timer.Stop()
+		delete(s.oneOffTimers, task.ID)
+	}
+
+	taskID := task.ID
+
+	// If no scheduled time, run immediately
+	if task.ScheduledAt == nil {
+		go s.executeOneOff(taskID)
+		return nil
+	}
+
+	delay := time.Until(*task.ScheduledAt)
+	if delay <= 0 {
+		// Scheduled time has passed, run immediately
+		go s.executeOneOff(taskID)
+		return nil
+	}
+
+	// Schedule for future execution
+	timer := time.AfterFunc(delay, func() {
+		s.executeOneOff(taskID)
+	})
+	s.oneOffTimers[task.ID] = timer
+
+	// Update NextRunAt in DB
+	task.NextRunAt = task.ScheduledAt
+	_ = s.db.UpdateTask(task)
+
+	return nil
+}
+
+// executeOneOff runs a one-off task and disables it afterward
+func (s *Scheduler) executeOneOff(taskID int64) {
+	// Get fresh task data
+	task, err := s.db.GetTask(taskID)
+	if err != nil {
+		fmt.Printf("Failed to get one-off task %d: %v\n", taskID, err)
+		return
+	}
+	if !task.Enabled {
+		return
+	}
+
+	// Execute the task
+	s.executor.ExecuteAsync(task)
+
+	// Auto-disable the task after execution
+	task.Enabled = false
+	task.NextRunAt = nil
+	_ = s.db.UpdateTask(task)
+
+	// Clean up timer reference
+	s.mu.Lock()
+	delete(s.oneOffTimers, taskID)
+	s.mu.Unlock()
+}
+
 // RunTaskNow executes a task immediately
 func (s *Scheduler) RunTaskNow(taskID int64) error {
 	task, err := s.db.GetTask(taskID)
@@ -236,7 +341,7 @@ func (s *Scheduler) SyncTasks() {
 		dbTaskIDs[task.ID] = true
 	}
 
-	// Remove jobs for tasks that no longer exist
+	// Remove cron jobs for tasks that no longer exist
 	for taskID := range s.jobs {
 		if !dbTaskIDs[taskID] {
 			if entryID, ok := s.jobs[taskID]; ok {
@@ -247,22 +352,49 @@ func (s *Scheduler) SyncTasks() {
 		}
 	}
 
+	// Remove one-off timers for tasks that no longer exist
+	for taskID := range s.oneOffTimers {
+		if !dbTaskIDs[taskID] {
+			if timer, ok := s.oneOffTimers[taskID]; ok {
+				timer.Stop()
+				delete(s.oneOffTimers, taskID)
+			}
+		}
+	}
+
 	// Add/update tasks
 	for _, task := range tasks {
-		_, scheduled := s.jobs[task.ID]
+		_, hasCronJob := s.jobs[task.ID]
+		_, hasOneOffTimer := s.oneOffTimers[task.ID]
+		isScheduled := hasCronJob || hasOneOffTimer
 		oldCronExpr := s.cronExprs[task.ID]
 
-		if task.Enabled && !scheduled {
+		if task.Enabled && !isScheduled {
 			// Task should be scheduled but isn't
 			_ = s.scheduleTaskLocked(task)
-		} else if !task.Enabled && scheduled {
-			// Task shouldn't be scheduled but is
+		} else if !task.Enabled && isScheduled {
+			// Task shouldn't be scheduled but is - remove it
 			if entryID, ok := s.jobs[task.ID]; ok {
 				s.cron.Remove(entryID)
 				delete(s.jobs, task.ID)
 				delete(s.cronExprs, task.ID)
 			}
-		} else if task.Enabled && scheduled && task.CronExpr != oldCronExpr {
+			if timer, ok := s.oneOffTimers[task.ID]; ok {
+				timer.Stop()
+				delete(s.oneOffTimers, task.ID)
+			}
+		} else if task.Enabled && hasCronJob && task.IsOneOff() {
+			// Task was converted from recurring to one-off, reschedule
+			s.cron.Remove(s.jobs[task.ID])
+			delete(s.jobs, task.ID)
+			delete(s.cronExprs, task.ID)
+			_ = s.scheduleTaskLocked(task)
+		} else if task.Enabled && hasOneOffTimer && !task.IsOneOff() {
+			// Task was converted from one-off to recurring, reschedule
+			s.oneOffTimers[task.ID].Stop()
+			delete(s.oneOffTimers, task.ID)
+			_ = s.scheduleTaskLocked(task)
+		} else if task.Enabled && hasCronJob && task.CronExpr != oldCronExpr {
 			// Cron expression changed, reschedule
 			_ = s.scheduleTaskLocked(task)
 		}

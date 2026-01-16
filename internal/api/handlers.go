@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/kylemclaren/claude-tasks/internal/db"
 	"github.com/kylemclaren/claude-tasks/internal/usage"
 	"github.com/kylemclaren/claude-tasks/internal/version"
+	"github.com/robfig/cron/v3"
 )
 
 // HealthCheck handles GET /api/v1/health
@@ -63,6 +65,16 @@ func (s *Server) CreateTask(w http.ResponseWriter, r *http.Request) {
 		DiscordWebhook: req.DiscordWebhook,
 		SlackWebhook:   req.SlackWebhook,
 		Enabled:        req.Enabled,
+	}
+
+	// Parse scheduled_at for one-off tasks
+	if req.ScheduledAt != nil && *req.ScheduledAt != "" {
+		scheduledAt, err := time.Parse(time.RFC3339, *req.ScheduledAt)
+		if err != nil {
+			s.errorResponse(w, http.StatusBadRequest, "Invalid scheduled_at format (use RFC3339)", err)
+			return
+		}
+		task.ScheduledAt = &scheduledAt
 	}
 
 	if err := s.db.CreateTask(task); err != nil {
@@ -135,6 +147,18 @@ func (s *Server) UpdateTask(w http.ResponseWriter, r *http.Request) {
 	task.DiscordWebhook = req.DiscordWebhook
 	task.SlackWebhook = req.SlackWebhook
 	task.Enabled = req.Enabled
+
+	// Parse scheduled_at for one-off tasks
+	if req.ScheduledAt != nil && *req.ScheduledAt != "" {
+		scheduledAt, err := time.Parse(time.RFC3339, *req.ScheduledAt)
+		if err != nil {
+			s.errorResponse(w, http.StatusBadRequest, "Invalid scheduled_at format (use RFC3339)", err)
+			return
+		}
+		task.ScheduledAt = &scheduledAt
+	} else {
+		task.ScheduledAt = nil
+	}
 
 	if err := s.db.UpdateTask(task); err != nil {
 		s.errorResponse(w, http.StatusInternalServerError, "Failed to update task", err)
@@ -354,6 +378,8 @@ func (s *Server) taskToResponse(task *db.Task, status db.RunStatus) TaskResponse
 		Name:           task.Name,
 		Prompt:         task.Prompt,
 		CronExpr:       task.CronExpr,
+		ScheduledAt:    task.ScheduledAt,
+		IsOneOff:       task.IsOneOff(),
 		WorkingDir:     task.WorkingDir,
 		DiscordWebhook: task.DiscordWebhook,
 		SlackWebhook:   task.SlackWebhook,
@@ -393,8 +419,13 @@ func (s *Server) validateTaskRequest(req *TaskRequest) error {
 	if req.Prompt == "" {
 		return errEmptyPrompt
 	}
-	if req.CronExpr == "" {
-		return errEmptyCron
+	// CronExpr is empty for one-off tasks, non-empty for recurring
+	if req.CronExpr != "" {
+		// Validate cron expression if provided
+		parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+		if _, err := parser.Parse(req.CronExpr); err != nil {
+			return errInvalidCron
+		}
 	}
 	if req.WorkingDir == "" {
 		req.WorkingDir = "."
@@ -426,5 +457,5 @@ func (e validationError) Error() string { return string(e) }
 const (
 	errEmptyName   validationError = "Name is required"
 	errEmptyPrompt validationError = "Prompt is required"
-	errEmptyCron   validationError = "Cron expression is required"
+	errInvalidCron validationError = "Invalid cron expression"
 )

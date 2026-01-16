@@ -1,10 +1,11 @@
-import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert, Modal, FlatList } from 'react-native';
-import { useState } from 'react';
+import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert, Modal, FlatList, Platform } from 'react-native';
+import { useState, useMemo } from 'react';
 import { router } from 'expo-router';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useCreateTask } from '../../hooks/useTasks';
 import { useTheme } from '../../lib/ThemeContext';
 import { useToast } from '../../lib/ToastContext';
-import { borderRadius } from '../../lib/theme';
+import { borderRadius, spacing } from '../../lib/theme';
 
 const CRON_PRESETS = [
   { name: 'Every minute', expr: '0 * * * * *', desc: 'Runs at the start of every minute' },
@@ -29,6 +30,30 @@ export default function NewTaskScreen() {
   const [workingDir, setWorkingDir] = useState('.');
   const [showCronPicker, setShowCronPicker] = useState(false);
 
+  // One-off task state
+  const [isOneOff, setIsOneOff] = useState(false);
+  const [runNow, setRunNow] = useState(true);
+  const [scheduledDate, setScheduledDate] = useState(() => {
+    // Default to 1 hour from now, rounded to next 5 minutes
+    const date = new Date();
+    date.setHours(date.getHours() + 1);
+    date.setMinutes(Math.ceil(date.getMinutes() / 5) * 5, 0, 0);
+    return date;
+  });
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [tempDate, setTempDate] = useState(new Date());
+
+  const formattedDateTime = useMemo(() => {
+    return scheduledDate.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }, [scheduledDate]);
+
   const handleSubmit = () => {
     if (!name.trim()) {
       Alert.alert('Error', 'Name is required');
@@ -38,29 +63,34 @@ export default function NewTaskScreen() {
       Alert.alert('Error', 'Prompt is required');
       return;
     }
-    if (!cronExpr.trim()) {
-      Alert.alert('Error', 'Schedule is required');
+    if (!isOneOff && !cronExpr.trim()) {
+      Alert.alert('Error', 'Schedule is required for recurring tasks');
       return;
     }
 
-    createTask.mutate(
-      {
-        name: name.trim(),
-        prompt: prompt.trim(),
-        cron_expr: cronExpr.trim(),
-        working_dir: workingDir.trim() || '.',
-        enabled: true,
+    // Build request based on task type
+    const request: Parameters<typeof createTask.mutate>[0] = {
+      name: name.trim(),
+      prompt: prompt.trim(),
+      cron_expr: isOneOff ? '' : cronExpr.trim(),
+      working_dir: workingDir.trim() || '.',
+      enabled: true,
+    };
+
+    // Add scheduled_at for one-off tasks that aren't "run now"
+    if (isOneOff && !runNow) {
+      request.scheduled_at = scheduledDate.toISOString();
+    }
+
+    createTask.mutate(request, {
+      onSuccess: () => {
+        showToast(`${name.trim()} created`);
+        router.back();
       },
-      {
-        onSuccess: () => {
-          showToast(`${name.trim()} created`);
-          router.back();
-        },
-        onError: (error) => {
-          showToast(error.message || 'Failed to create task', 'error');
-        },
-      }
-    );
+      onError: (error) => {
+        showToast(error.message || 'Failed to create task', 'error');
+      },
+    });
   };
 
   return (
@@ -93,23 +123,124 @@ export default function NewTaskScreen() {
         </View>
 
         <View style={styles.field}>
-          <Text style={[styles.label, { color: colors.textSecondary }]}>Schedule *</Text>
-          <Pressable
-            style={({ pressed }) => [
-              styles.cronInput,
-              { borderColor: colors.border, backgroundColor: colors.surface },
-              pressed && { backgroundColor: colors.surfaceSecondary }
-            ]}
-            onPress={() => setShowCronPicker(true)}
-          >
-            <Text style={cronExpr ? [styles.cronText, { color: colors.textPrimary }] : [styles.cronPlaceholder, { color: colors.textMuted }]}>
-              {cronExpr || 'Select schedule...'}
-            </Text>
-          </Pressable>
-          <Text style={[styles.hint, { color: colors.textMuted }]}>
-            6-field cron: second minute hour day month weekday
-          </Text>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>Task Type</Text>
+          <View style={[styles.segmentedControl, { backgroundColor: colors.surfaceSecondary }]}>
+            <Pressable
+              style={[
+                styles.segment,
+                !isOneOff && [styles.segmentActive, { backgroundColor: colors.surface }],
+              ]}
+              onPress={() => setIsOneOff(false)}
+            >
+              <Text
+                style={[
+                  styles.segmentText,
+                  { color: !isOneOff ? colors.textPrimary : colors.textMuted },
+                ]}
+              >
+                Recurring
+              </Text>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.segment,
+                isOneOff && [styles.segmentActive, { backgroundColor: colors.surface }],
+              ]}
+              onPress={() => setIsOneOff(true)}
+            >
+              <Text
+                style={[
+                  styles.segmentText,
+                  { color: isOneOff ? colors.textPrimary : colors.textMuted },
+                ]}
+              >
+                One-off
+              </Text>
+            </Pressable>
+          </View>
         </View>
+
+        {!isOneOff ? (
+          <View style={styles.field}>
+            <Text style={[styles.label, { color: colors.textSecondary }]}>Schedule *</Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.cronInput,
+                { borderColor: colors.border, backgroundColor: colors.surface },
+                pressed && { backgroundColor: colors.surfaceSecondary }
+              ]}
+              onPress={() => setShowCronPicker(true)}
+            >
+              <Text style={cronExpr ? [styles.cronText, { color: colors.textPrimary }] : [styles.cronPlaceholder, { color: colors.textMuted }]}>
+                {cronExpr || 'Select schedule...'}
+              </Text>
+            </Pressable>
+            <Text style={[styles.hint, { color: colors.textMuted }]}>
+              6-field cron: second minute hour day month weekday
+            </Text>
+          </View>
+        ) : (
+          <>
+            <View style={styles.field}>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>When to Run</Text>
+              <View style={[styles.segmentedControl, { backgroundColor: colors.surfaceSecondary }]}>
+                <Pressable
+                  style={[
+                    styles.segment,
+                    runNow && [styles.segmentActive, { backgroundColor: colors.surface }],
+                  ]}
+                  onPress={() => setRunNow(true)}
+                >
+                  <Text
+                    style={[
+                      styles.segmentText,
+                      { color: runNow ? colors.textPrimary : colors.textMuted },
+                    ]}
+                  >
+                    Run Now
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.segment,
+                    !runNow && [styles.segmentActive, { backgroundColor: colors.surface }],
+                  ]}
+                  onPress={() => setRunNow(false)}
+                >
+                  <Text
+                    style={[
+                      styles.segmentText,
+                      { color: !runNow ? colors.textPrimary : colors.textMuted },
+                    ]}
+                  >
+                    Schedule
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
+            {!runNow && (
+              <View style={styles.field}>
+                <Text style={[styles.label, { color: colors.textSecondary }]}>Run At</Text>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.cronInput,
+                    { borderColor: colors.border, backgroundColor: colors.surface },
+                    pressed && { backgroundColor: colors.surfaceSecondary }
+                  ]}
+                  onPress={() => {
+                    setTempDate(scheduledDate);
+                    setShowDatePicker(true);
+                  }}
+                >
+                  <Text style={[styles.cronText, { color: colors.textPrimary }]}>
+                    {formattedDateTime}
+                  </Text>
+                </Pressable>
+              </View>
+            )}
+          </>
+        )}
 
         <View style={styles.field}>
           <Text style={[styles.label, { color: colors.textSecondary }]}>Working Directory</Text>
@@ -190,6 +321,75 @@ export default function NewTaskScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Date/Time Picker for one-off scheduled tasks */}
+      {Platform.OS === 'ios' ? (
+        <Modal
+          visible={showDatePicker}
+          animationType="slide"
+          presentationStyle="pageSheet"
+        >
+          <View style={[styles.modal, { backgroundColor: colors.background }]}>
+            <View style={[styles.modalHeader, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+              <Pressable onPress={() => setShowDatePicker(false)}>
+                <Text style={[styles.modalClose, { color: colors.textMuted }]}>Cancel</Text>
+              </Pressable>
+              <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Select Date & Time</Text>
+              <Pressable onPress={() => {
+                setScheduledDate(tempDate);
+                setShowDatePicker(false);
+              }}>
+                <Text style={[styles.modalClose, { color: colors.orange }]}>Done</Text>
+              </Pressable>
+            </View>
+            <View style={styles.datePickerContainer}>
+              <DateTimePicker
+                value={tempDate}
+                mode="datetime"
+                display="spinner"
+                minimumDate={new Date()}
+                onChange={(_, date) => date && setTempDate(date)}
+              />
+            </View>
+          </View>
+        </Modal>
+      ) : (
+        <>
+          {showDatePicker && (
+            <DateTimePicker
+              value={scheduledDate}
+              mode="date"
+              display="default"
+              minimumDate={new Date()}
+              onChange={(_, date) => {
+                setShowDatePicker(false);
+                if (date) {
+                  // Preserve existing time but update date
+                  const newDate = new Date(date);
+                  newDate.setHours(scheduledDate.getHours());
+                  newDate.setMinutes(scheduledDate.getMinutes());
+                  setScheduledDate(newDate);
+                  // Show time picker next
+                  setTimeout(() => setShowTimePicker(true), 100);
+                }
+              }}
+            />
+          )}
+          {showTimePicker && (
+            <DateTimePicker
+              value={scheduledDate}
+              mode="time"
+              display="default"
+              onChange={(_, date) => {
+                setShowTimePicker(false);
+                if (date) {
+                  setScheduledDate(date);
+                }
+              }}
+            />
+          )}
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -294,5 +494,33 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     marginBottom: 8,
+  },
+  segmentedControl: {
+    flexDirection: 'row',
+    borderRadius: borderRadius.sm,
+    padding: 4,
+  },
+  segment: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: borderRadius.sm - 2,
+  },
+  segmentActive: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  segmentText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  datePickerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 20,
   },
 });
