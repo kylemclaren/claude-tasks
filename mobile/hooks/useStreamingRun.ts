@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { apiClient } from '../lib/api';
-import type { TaskRun, SSEOutputChunk, SSECompletionEvent } from '../lib/types';
+import type { TaskRun } from '../lib/types';
 
 interface UseStreamingRunOptions {
   taskId: number;
   runId: number;
   enabled?: boolean;
+  pollInterval?: number; // Polling interval in ms (default: 500)
 }
 
 interface UseStreamingRunResult {
@@ -17,76 +18,64 @@ interface UseStreamingRunResult {
 }
 
 /**
- * Hook for subscribing to streaming output of a running task.
- * Handles SSE connection, accumulating output, and cleanup.
+ * Hook for polling output of a running task.
+ * Uses polling since React Native doesn't support ReadableStream.
  */
 export function useStreamingRun({
   taskId,
   runId,
   enabled = true,
+  pollInterval = 500,
 }: UseStreamingRunOptions): UseStreamingRunResult {
   const [output, setOutput] = useState('');
   const [status, setStatus] = useState<TaskRun['status']>('running');
   const [error, setError] = useState<string | undefined>();
   const [isStreaming, setIsStreaming] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
-  const streamRef = useRef<{ close: () => void } | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Fetch initial run state
+  // Poll for run state updates
   useEffect(() => {
     if (!enabled || !taskId || !runId) return;
 
-    const fetchInitialState = async () => {
+    const fetchRunState = async () => {
       try {
         const run = await apiClient.getTaskRun(taskId, runId);
         setOutput(run.output || '');
         setStatus(run.status);
         if (run.error) setError(run.error);
+
         if (run.status === 'completed' || run.status === 'failed') {
           setIsComplete(true);
+          setIsStreaming(false);
+          // Stop polling
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
         }
       } catch (e) {
-        console.error('Failed to fetch initial run state:', e);
+        console.error('Failed to fetch run state:', e);
       }
     };
 
-    fetchInitialState();
-  }, [taskId, runId, enabled]);
+    // Initial fetch
+    fetchRunState();
 
-  // Subscribe to streaming updates
-  useEffect(() => {
-    if (!enabled || !taskId || !runId || isComplete) return;
-
-    setIsStreaming(true);
-
-    const subscription = apiClient.subscribeToRunStream(taskId, runId, {
-      onOutput: (chunk: SSEOutputChunk) => {
-        setOutput((prev) => prev + chunk.text);
-        if (chunk.is_error) {
-          setError((prev) => (prev ? prev + chunk.text : chunk.text));
-        }
-      },
-      onComplete: (event: SSECompletionEvent) => {
-        setStatus(event.status as TaskRun['status']);
-        if (event.error) setError(event.error);
-        setIsStreaming(false);
-        setIsComplete(true);
-      },
-      onError: (err: Error) => {
-        console.error('Stream error:', err);
-        setError(err.message);
-        setIsStreaming(false);
-      },
-    });
-
-    streamRef.current = subscription;
+    // Start polling if not complete
+    if (!isComplete) {
+      setIsStreaming(true);
+      intervalRef.current = setInterval(fetchRunState, pollInterval);
+    }
 
     return () => {
-      subscription.close();
-      streamRef.current = null;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
       setIsStreaming(false);
     };
-  }, [taskId, runId, enabled, isComplete]);
+  }, [taskId, runId, enabled, pollInterval, isComplete]);
 
   return {
     output,
