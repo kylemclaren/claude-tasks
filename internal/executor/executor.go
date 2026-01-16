@@ -66,19 +66,18 @@ type Result struct {
 
 // streamEvent represents a Claude CLI stream-json event
 type streamEvent struct {
-	Type  string `json:"type"`
-	Event struct {
-		Type  string `json:"type"`
-		Index int    `json:"index"`
-		Delta struct {
+	Type    string `json:"type"`
+	Subtype string `json:"subtype,omitempty"`
+	// For "assistant" type messages
+	Message struct {
+		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
-		} `json:"delta,omitempty"`
-	} `json:"event,omitempty"`
-	Result struct {
-		IsError bool   `json:"is_error,omitempty"`
-		Error   string `json:"error,omitempty"`
-	} `json:"result,omitempty"`
+		} `json:"content,omitempty"`
+	} `json:"message,omitempty"`
+	// For "result" type messages
+	Result  string `json:"result,omitempty"`
+	IsError bool   `json:"is_error,omitempty"`
 }
 
 // Execute runs a Claude CLI command for the given task
@@ -363,11 +362,11 @@ func (e *Executor) parseStreamLine(line string) string {
 		return ""
 	}
 
-	// Handle content_block_delta events which contain the actual text
-	if event.Type == "stream_event" {
-		if event.Event.Type == "content_block_delta" && event.Event.Delta.Type == "text_delta" {
-			return event.Event.Delta.Text
-		}
+	// Handle "result" type messages - this is the final output
+	// Note: Claude CLI stream-json doesn't provide incremental text streaming,
+	// so we capture the complete output from the result message
+	if event.Type == "result" && !event.IsError {
+		return event.Result
 	}
 
 	return ""
