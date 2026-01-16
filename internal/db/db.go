@@ -90,6 +90,9 @@ func (db *DB) migrate() error {
 	// Migration: Add slack_webhook column if it doesn't exist
 	_, _ = db.conn.Exec("ALTER TABLE tasks ADD COLUMN slack_webhook TEXT DEFAULT ''")
 
+	// Migration: Add scheduled_at column for one-off tasks
+	_, _ = db.conn.Exec("ALTER TABLE tasks ADD COLUMN scheduled_at DATETIME")
+
 	return nil
 }
 
@@ -131,9 +134,9 @@ func (db *DB) SetUsageThreshold(threshold float64) error {
 // CreateTask creates a new task
 func (db *DB) CreateTask(task *Task) error {
 	result, err := db.conn.Exec(`
-		INSERT INTO tasks (name, prompt, cron_expr, working_dir, discord_webhook, slack_webhook, enabled, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, task.Name, task.Prompt, task.CronExpr, task.WorkingDir, task.DiscordWebhook, task.SlackWebhook, task.Enabled, time.Now(), time.Now())
+		INSERT INTO tasks (name, prompt, cron_expr, scheduled_at, working_dir, discord_webhook, slack_webhook, enabled, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, task.Name, task.Prompt, task.CronExpr, task.ScheduledAt, task.WorkingDir, task.DiscordWebhook, task.SlackWebhook, task.Enabled, time.Now(), time.Now())
 	if err != nil {
 		return err
 	}
@@ -150,9 +153,9 @@ func (db *DB) CreateTask(task *Task) error {
 func (db *DB) GetTask(id int64) (*Task, error) {
 	task := &Task{}
 	err := db.conn.QueryRow(`
-		SELECT id, name, prompt, cron_expr, working_dir, discord_webhook, slack_webhook, enabled, created_at, updated_at, last_run_at, next_run_at
+		SELECT id, name, prompt, cron_expr, scheduled_at, working_dir, discord_webhook, slack_webhook, enabled, created_at, updated_at, last_run_at, next_run_at
 		FROM tasks WHERE id = ?
-	`, id).Scan(&task.ID, &task.Name, &task.Prompt, &task.CronExpr, &task.WorkingDir, &task.DiscordWebhook, &task.SlackWebhook, &task.Enabled, &task.CreatedAt, &task.UpdatedAt, &task.LastRunAt, &task.NextRunAt)
+	`, id).Scan(&task.ID, &task.Name, &task.Prompt, &task.CronExpr, &task.ScheduledAt, &task.WorkingDir, &task.DiscordWebhook, &task.SlackWebhook, &task.Enabled, &task.CreatedAt, &task.UpdatedAt, &task.LastRunAt, &task.NextRunAt)
 	if err != nil {
 		return nil, err
 	}
@@ -162,7 +165,7 @@ func (db *DB) GetTask(id int64) (*Task, error) {
 // ListTasks retrieves all tasks
 func (db *DB) ListTasks() ([]*Task, error) {
 	rows, err := db.conn.Query(`
-		SELECT id, name, prompt, cron_expr, working_dir, discord_webhook, slack_webhook, enabled, created_at, updated_at, last_run_at, next_run_at
+		SELECT id, name, prompt, cron_expr, scheduled_at, working_dir, discord_webhook, slack_webhook, enabled, created_at, updated_at, last_run_at, next_run_at
 		FROM tasks ORDER BY created_at DESC
 	`)
 	if err != nil {
@@ -173,7 +176,7 @@ func (db *DB) ListTasks() ([]*Task, error) {
 	var tasks []*Task
 	for rows.Next() {
 		task := &Task{}
-		err := rows.Scan(&task.ID, &task.Name, &task.Prompt, &task.CronExpr, &task.WorkingDir, &task.DiscordWebhook, &task.SlackWebhook, &task.Enabled, &task.CreatedAt, &task.UpdatedAt, &task.LastRunAt, &task.NextRunAt)
+		err := rows.Scan(&task.ID, &task.Name, &task.Prompt, &task.CronExpr, &task.ScheduledAt, &task.WorkingDir, &task.DiscordWebhook, &task.SlackWebhook, &task.Enabled, &task.CreatedAt, &task.UpdatedAt, &task.LastRunAt, &task.NextRunAt)
 		if err != nil {
 			return nil, err
 		}
@@ -186,9 +189,9 @@ func (db *DB) ListTasks() ([]*Task, error) {
 func (db *DB) UpdateTask(task *Task) error {
 	task.UpdatedAt = time.Now()
 	_, err := db.conn.Exec(`
-		UPDATE tasks SET name = ?, prompt = ?, cron_expr = ?, working_dir = ?, discord_webhook = ?, slack_webhook = ?, enabled = ?, updated_at = ?, last_run_at = ?, next_run_at = ?
+		UPDATE tasks SET name = ?, prompt = ?, cron_expr = ?, scheduled_at = ?, working_dir = ?, discord_webhook = ?, slack_webhook = ?, enabled = ?, updated_at = ?, last_run_at = ?, next_run_at = ?
 		WHERE id = ?
-	`, task.Name, task.Prompt, task.CronExpr, task.WorkingDir, task.DiscordWebhook, task.SlackWebhook, task.Enabled, task.UpdatedAt, task.LastRunAt, task.NextRunAt, task.ID)
+	`, task.Name, task.Prompt, task.CronExpr, task.ScheduledAt, task.WorkingDir, task.DiscordWebhook, task.SlackWebhook, task.Enabled, task.UpdatedAt, task.LastRunAt, task.NextRunAt, task.ID)
 	return err
 }
 

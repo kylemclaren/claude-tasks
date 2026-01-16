@@ -129,6 +129,11 @@ type Model struct {
 	editingTask    *db.Task
 	formValidation map[int]string // Validation errors per field
 
+	// Task type (0 = recurring, 1 = one-off)
+	isOneOff     bool
+	runNow       bool // For one-off: true = run immediately, false = schedule for later
+	scheduledAt  textinput.Model
+
 	// Cron helper
 	showCronHelper  bool
 	cronHelperIndex int
@@ -166,7 +171,10 @@ type cronPreset struct {
 const (
 	fieldName = iota
 	fieldPrompt
-	fieldCron
+	fieldTaskType      // "Recurring" or "One-off"
+	fieldCron          // Only shown for recurring tasks
+	fieldScheduleMode  // "Run Now" or "Schedule for" - only for one-off
+	fieldScheduledAt   // Datetime input - only for scheduled one-off
 	fieldWorkingDir
 	fieldDiscordWebhook
 	fieldSlackWebhook
@@ -353,10 +361,30 @@ func (m *Model) initFormInputs() {
 	m.promptInput.SetHeight(m.getTextareaHeight())
 	m.promptInput.ShowLineNumbers = false
 
+	// Task type placeholder (not a real input, just for indexing)
+	m.formInputs[fieldTaskType] = textinput.New()
+	m.formInputs[fieldTaskType].Width = inputWidth
+
 	m.formInputs[fieldCron] = textinput.New()
 	m.formInputs[fieldCron].Placeholder = "0 * * * * * (every minute)"
 	m.formInputs[fieldCron].CharLimit = 50
 	m.formInputs[fieldCron].Width = inputWidth
+
+	// Schedule mode placeholder (not a real input)
+	m.formInputs[fieldScheduleMode] = textinput.New()
+	m.formInputs[fieldScheduleMode].Width = inputWidth
+
+	// Scheduled at datetime input
+	m.formInputs[fieldScheduledAt] = textinput.New()
+	m.formInputs[fieldScheduledAt].Placeholder = "2024-01-15 09:00"
+	m.formInputs[fieldScheduledAt].CharLimit = 20
+	m.formInputs[fieldScheduledAt].Width = inputWidth
+
+	// Also initialize the separate scheduledAt field
+	m.scheduledAt = textinput.New()
+	m.scheduledAt.Placeholder = "2024-01-15 09:00"
+	m.scheduledAt.CharLimit = 20
+	m.scheduledAt.Width = inputWidth
 
 	m.formInputs[fieldWorkingDir] = textinput.New()
 	m.formInputs[fieldWorkingDir].Placeholder = "/path/to/project"
@@ -374,6 +402,10 @@ func (m *Model) initFormInputs() {
 	m.formInputs[fieldSlackWebhook].Placeholder = "https://hooks.slack.com/services/..."
 	m.formInputs[fieldSlackWebhook].CharLimit = 500
 	m.formInputs[fieldSlackWebhook].Width = inputWidth
+
+	// Reset task type state
+	m.isOneOff = false
+	m.runNow = true
 }
 
 // getFormInputWidth calculates responsive input width
@@ -426,6 +458,8 @@ func (m *Model) resetForm() {
 	m.formFocus = 0
 	m.formInputs[fieldName].Focus()
 	m.editingTask = nil
+	m.isOneOff = false
+	m.runNow = true
 }
 
 func (m *Model) focusFormField(field int) {
@@ -434,13 +468,72 @@ func (m *Model) focusFormField(field int) {
 		m.formInputs[i].Blur()
 	}
 	m.promptInput.Blur()
+	m.scheduledAt.Blur()
 
 	// Focus the target field
 	m.formFocus = field
 	if field == fieldPrompt {
 		m.promptInput.Focus()
+	} else if field == fieldScheduledAt {
+		m.scheduledAt.Focus()
 	} else {
 		m.formInputs[field].Focus()
+	}
+}
+
+// getNextFormField returns the next field to focus, skipping fields based on task type
+func (m *Model) getNextFormField(current int) int {
+	next := current + 1
+	for next < fieldCount {
+		if m.shouldShowField(next) {
+			return next
+		}
+		next++
+	}
+	// Wrap around
+	next = 0
+	for next < current {
+		if m.shouldShowField(next) {
+			return next
+		}
+		next++
+	}
+	return current
+}
+
+// getPrevFormField returns the previous field to focus, skipping fields based on task type
+func (m *Model) getPrevFormField(current int) int {
+	prev := current - 1
+	for prev >= 0 {
+		if m.shouldShowField(prev) {
+			return prev
+		}
+		prev--
+	}
+	// Wrap around
+	prev = fieldCount - 1
+	for prev > current {
+		if m.shouldShowField(prev) {
+			return prev
+		}
+		prev--
+	}
+	return current
+}
+
+// shouldShowField returns true if the field should be shown based on current task type
+func (m *Model) shouldShowField(field int) bool {
+	switch field {
+	case fieldName, fieldPrompt, fieldTaskType, fieldWorkingDir, fieldDiscordWebhook, fieldSlackWebhook:
+		return true
+	case fieldCron:
+		return !m.isOneOff // Only for recurring tasks
+	case fieldScheduleMode:
+		return m.isOneOff // Only for one-off tasks
+	case fieldScheduledAt:
+		return m.isOneOff && !m.runNow // Only for scheduled one-off tasks
+	default:
+		return true
 	}
 }
 
@@ -505,9 +598,21 @@ func (m *Model) updateTable() {
 			lastRun = formatTime(*task.LastRunAt)
 		}
 
+		// Format schedule column for one-off vs recurring
+		schedule := task.CronExpr
+		if task.IsOneOff() {
+			if task.ScheduledAt != nil {
+				schedule = "Once: " + task.ScheduledAt.Format("Jan 02 15:04")
+			} else if task.LastRunAt != nil {
+				schedule = "One-off (ran)"
+			} else {
+				schedule = "One-off"
+			}
+		}
+
 		rows[i] = table.Row{
 			truncate(task.Name, nameWidth),
-			truncate(task.CronExpr, scheduleWidth),
+			truncate(schedule, scheduleWidth),
 			status,
 			nextRun,
 			lastRun,
@@ -928,6 +1033,14 @@ func (m *Model) updateList(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.formInputs[fieldWorkingDir].SetValue(m.editingTask.WorkingDir)
 				m.formInputs[fieldDiscordWebhook].SetValue(m.editingTask.DiscordWebhook)
 				m.formInputs[fieldSlackWebhook].SetValue(m.editingTask.SlackWebhook)
+				// Set task type state from existing task
+				m.isOneOff = m.editingTask.IsOneOff()
+				if m.isOneOff && m.editingTask.ScheduledAt != nil {
+					m.runNow = false
+					m.scheduledAt.SetValue(m.editingTask.ScheduledAt.Format("2006-01-02 15:04"))
+				} else {
+					m.runNow = true
+				}
 				m.focusFormField(fieldName)
 				return m, textinput.Blink
 			}
@@ -992,17 +1105,36 @@ func (m *Model) validateForm() bool {
 		valid = false
 	}
 
-	// Validate cron expression
-	cronExpr := strings.TrimSpace(m.formInputs[fieldCron].Value())
-	if cronExpr == "" {
-		m.formValidation[fieldCron] = "Cron expression is required"
-		valid = false
+	// Validation depends on task type
+	if m.isOneOff {
+		// One-off task: validate scheduled time if not "run now"
+		if !m.runNow {
+			scheduledAtStr := strings.TrimSpace(m.scheduledAt.Value())
+			if scheduledAtStr == "" {
+				m.formValidation[fieldScheduledAt] = "Schedule time is required"
+				valid = false
+			} else {
+				// Try parsing the datetime
+				_, err := time.ParseInLocation("2006-01-02 15:04", scheduledAtStr, time.Local)
+				if err != nil {
+					m.formValidation[fieldScheduledAt] = "Invalid format (use YYYY-MM-DD HH:MM)"
+					valid = false
+				}
+			}
+		}
 	} else {
-		// Use cron parser with seconds support
-		parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-		if _, err := parser.Parse(cronExpr); err != nil {
-			m.formValidation[fieldCron] = "Invalid cron format"
+		// Recurring task: validate cron expression
+		cronExpr := strings.TrimSpace(m.formInputs[fieldCron].Value())
+		if cronExpr == "" {
+			m.formValidation[fieldCron] = "Cron expression is required"
 			valid = false
+		} else {
+			// Use cron parser with seconds support
+			parser := cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+			if _, err := parser.Parse(cronExpr); err != nil {
+				m.formValidation[fieldCron] = "Invalid cron format"
+				valid = false
+			}
 		}
 	}
 
@@ -1053,22 +1185,31 @@ func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.resetForm()
 		return m, nil
 	case "?":
-		// Show cron helper when in cron field
-		if m.formFocus == fieldCron {
+		// Show cron helper when in cron field (only for recurring tasks)
+		if m.formFocus == fieldCron && !m.isOneOff {
 			m.showCronHelper = true
 			m.cronHelperIndex = 0
 			return m, nil
 		}
+	case "left", "right", "h", "l":
+		// Handle toggle fields
+		if m.formFocus == fieldTaskType {
+			m.isOneOff = !m.isOneOff
+			m.validateForm()
+			return m, nil
+		}
+		if m.formFocus == fieldScheduleMode && m.isOneOff {
+			m.runNow = !m.runNow
+			m.validateForm()
+			return m, nil
+		}
 	case "tab":
-		nextField := (m.formFocus + 1) % fieldCount
+		nextField := m.getNextFormField(m.formFocus)
 		m.focusFormField(nextField)
 		m.validateForm()
 		return m, textinput.Blink
 	case "shift+tab":
-		prevField := m.formFocus - 1
-		if prevField < 0 {
-			prevField = fieldCount - 1
-		}
+		prevField := m.getPrevFormField(m.formFocus)
 		m.focusFormField(prevField)
 		m.validateForm()
 		return m, textinput.Blink
@@ -1084,15 +1225,15 @@ func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.validateForm()
 			return m, cmd
 		}
-		// On last field, submit if valid
-		if m.formFocus == fieldCount-1 {
+		// On last visible field, submit if valid
+		if m.formFocus == fieldSlackWebhook {
 			if m.validateForm() {
 				return m, m.saveTask()
 			}
 			return m, nil
 		}
 		// Otherwise navigate to next field
-		nextField := (m.formFocus + 1) % fieldCount
+		nextField := m.getNextFormField(m.formFocus)
 		m.focusFormField(nextField)
 		m.validateForm()
 		return m, textinput.Blink
@@ -1101,7 +1242,10 @@ func (m *Model) updateForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Update the focused input
 	if m.formFocus == fieldPrompt {
 		m.promptInput, cmd = m.promptInput.Update(msg)
-	} else {
+	} else if m.formFocus == fieldScheduledAt {
+		m.scheduledAt, cmd = m.scheduledAt.Update(msg)
+	} else if m.formFocus != fieldTaskType && m.formFocus != fieldScheduleMode {
+		// Don't update toggle fields as text inputs
 		m.formInputs[m.formFocus], cmd = m.formInputs[m.formFocus].Update(msg)
 	}
 
@@ -1164,13 +1308,12 @@ func (m *Model) saveTask() tea.Cmd {
 	return func() tea.Msg {
 		name := strings.TrimSpace(m.formInputs[fieldName].Value())
 		prompt := strings.TrimSpace(m.promptInput.Value())
-		cronExpr := strings.TrimSpace(m.formInputs[fieldCron].Value())
 		workingDir := strings.TrimSpace(m.formInputs[fieldWorkingDir].Value())
 		discordWebhook := strings.TrimSpace(m.formInputs[fieldDiscordWebhook].Value())
 		slackWebhook := strings.TrimSpace(m.formInputs[fieldSlackWebhook].Value())
 
-		if name == "" || prompt == "" || cronExpr == "" {
-			return errMsg{fmt.Errorf("name, prompt, and cron are required")}
+		if name == "" || prompt == "" {
+			return errMsg{fmt.Errorf("name and prompt are required")}
 		}
 
 		if workingDir == "" {
@@ -1180,11 +1323,35 @@ func (m *Model) saveTask() tea.Cmd {
 		task := &db.Task{
 			Name:           name,
 			Prompt:         prompt,
-			CronExpr:       cronExpr,
 			WorkingDir:     workingDir,
 			DiscordWebhook: discordWebhook,
 			SlackWebhook:   slackWebhook,
 			Enabled:        true,
+		}
+
+		// Handle task type
+		if m.isOneOff {
+			// One-off task: CronExpr is empty
+			task.CronExpr = ""
+			if !m.runNow {
+				// Parse scheduled time
+				scheduledAtStr := strings.TrimSpace(m.scheduledAt.Value())
+				if scheduledAtStr != "" {
+					scheduledAt, err := time.ParseInLocation("2006-01-02 15:04", scheduledAtStr, time.Local)
+					if err != nil {
+						return errMsg{fmt.Errorf("invalid schedule time format")}
+					}
+					task.ScheduledAt = &scheduledAt
+				}
+			}
+			// If runNow, ScheduledAt stays nil (runs immediately)
+		} else {
+			// Recurring task: requires cron expression
+			cronExpr := strings.TrimSpace(m.formInputs[fieldCron].Value())
+			if cronExpr == "" {
+				return errMsg{fmt.Errorf("cron expression is required for recurring tasks")}
+			}
+			task.CronExpr = cronExpr
 		}
 
 		if m.editingTask != nil {
@@ -1546,58 +1713,101 @@ func (m Model) renderForm(title string) string {
 		return b.String()
 	}
 
-	labels := []string{"Name", "Prompt", "Cron Expression", "Working Directory", "Discord Webhook (optional)", "Slack Webhook (optional)"}
-	hints := []string{
-		"",
-		"(multi-line, tab to next field)",
-		"Press ? for presets",
-		"",
-		"",
-		"",
-	}
-
-	for i, label := range labels {
+	// Helper to render a field label with validation
+	renderLabel := func(field int, label, hint string) {
 		b.WriteString(inputLabelStyle.Render(label))
-		if hints[i] != "" {
+		if hint != "" {
 			b.WriteString("  ")
-			b.WriteString(subtitleStyle.Render(hints[i]))
+			b.WriteString(subtitleStyle.Render(hint))
 		}
-
-		// Show validation status indicator
-		if errMsg, hasErr := m.formValidation[i]; hasErr {
+		if errMsg, hasErr := m.formValidation[field]; hasErr {
 			b.WriteString("  ")
 			b.WriteString(errorMsgStyle.Render("✗ " + errMsg))
-		} else if i != fieldDiscordWebhook && i != fieldSlackWebhook { // Don't show checkmark for optional fields
-			// Show checkmark if field has content and is valid
-			var hasContent bool
-			if i == fieldPrompt {
-				hasContent = strings.TrimSpace(m.promptInput.Value()) != ""
-			} else {
-				hasContent = strings.TrimSpace(m.formInputs[i].Value()) != ""
-			}
-			if hasContent {
-				b.WriteString("  ")
-				b.WriteString(successMsgStyle.Render("✓"))
-			}
 		}
 		b.WriteString("\n")
+	}
 
-		// Prompt field uses textarea
-		if i == fieldPrompt {
-			if i == m.formFocus {
-				b.WriteString(focusedInputStyle.Render(m.promptInput.View()))
-			} else {
-				b.WriteString(blurredInputStyle.Render(m.promptInput.View()))
-			}
+	// Helper to render focused/blurred style
+	renderFocused := func(content string, isFocused bool) {
+		if isFocused {
+			b.WriteString(focusedInputStyle.Render(content))
 		} else {
-			if i == m.formFocus {
-				b.WriteString(focusedInputStyle.Render(m.formInputs[i].View()))
-			} else {
-				b.WriteString(blurredInputStyle.Render(m.formInputs[i].View()))
-			}
+			b.WriteString(blurredInputStyle.Render(content))
 		}
 		b.WriteString("\n\n")
 	}
+
+	// Name field
+	renderLabel(fieldName, "Name", "")
+	renderFocused(m.formInputs[fieldName].View(), m.formFocus == fieldName)
+
+	// Prompt field (textarea)
+	renderLabel(fieldPrompt, "Prompt", "(multi-line, tab to next field)")
+	if m.formFocus == fieldPrompt {
+		b.WriteString(focusedInputStyle.Render(m.promptInput.View()))
+	} else {
+		b.WriteString(blurredInputStyle.Render(m.promptInput.View()))
+	}
+	b.WriteString("\n\n")
+
+	// Task Type toggle
+	b.WriteString(inputLabelStyle.Render("Task Type"))
+	b.WriteString("  ")
+	b.WriteString(subtitleStyle.Render("(←/→ to change)"))
+	b.WriteString("\n")
+	{
+		recurringLabel := "Recurring"
+		oneOffLabel := "One-off"
+		if !m.isOneOff {
+			recurringLabel = "[" + recurringLabel + "]"
+		} else {
+			oneOffLabel = "[" + oneOffLabel + "]"
+		}
+		toggleContent := recurringLabel + "  " + oneOffLabel
+		renderFocused(toggleContent, m.formFocus == fieldTaskType)
+	}
+
+	// Conditional fields based on task type
+	if m.isOneOff {
+		// Schedule Mode toggle for one-off tasks
+		b.WriteString(inputLabelStyle.Render("When to Run"))
+		b.WriteString("  ")
+		b.WriteString(subtitleStyle.Render("(←/→ to change)"))
+		b.WriteString("\n")
+		{
+			runNowLabel := "Run Now"
+			scheduleLabel := "Schedule for later"
+			if m.runNow {
+				runNowLabel = "[" + runNowLabel + "]"
+			} else {
+				scheduleLabel = "[" + scheduleLabel + "]"
+			}
+			toggleContent := runNowLabel + "  " + scheduleLabel
+			renderFocused(toggleContent, m.formFocus == fieldScheduleMode)
+		}
+
+		// Scheduled At field (only if not "run now")
+		if !m.runNow {
+			renderLabel(fieldScheduledAt, "Schedule Time", "(YYYY-MM-DD HH:MM)")
+			renderFocused(m.scheduledAt.View(), m.formFocus == fieldScheduledAt)
+		}
+	} else {
+		// Cron Expression for recurring tasks
+		renderLabel(fieldCron, "Cron Expression", "Press ? for presets")
+		renderFocused(m.formInputs[fieldCron].View(), m.formFocus == fieldCron)
+	}
+
+	// Working Directory
+	renderLabel(fieldWorkingDir, "Working Directory", "")
+	renderFocused(m.formInputs[fieldWorkingDir].View(), m.formFocus == fieldWorkingDir)
+
+	// Discord Webhook
+	renderLabel(fieldDiscordWebhook, "Discord Webhook (optional)", "")
+	renderFocused(m.formInputs[fieldDiscordWebhook].View(), m.formFocus == fieldDiscordWebhook)
+
+	// Slack Webhook
+	renderLabel(fieldSlackWebhook, "Slack Webhook (optional)", "")
+	renderFocused(m.formInputs[fieldSlackWebhook].View(), m.formFocus == fieldSlackWebhook)
 
 	// Status
 	if m.statusMsg != "" {
@@ -1614,10 +1824,12 @@ func (m Model) renderForm(title string) string {
 	b.WriteString("\n")
 	b.WriteString(helpText)
 
-	// Cron examples
-	b.WriteString("\n\n")
-	b.WriteString(subtitleStyle.Render("Cron format: "))
-	b.WriteString(dimRowStyle.Render("sec min hour day month weekday"))
+	// Cron examples (only for recurring tasks)
+	if !m.isOneOff {
+		b.WriteString("\n\n")
+		b.WriteString(subtitleStyle.Render("Cron format: "))
+		b.WriteString(dimRowStyle.Render("sec min hour day month weekday"))
+	}
 
 	return b.String()
 }

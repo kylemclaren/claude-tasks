@@ -3,6 +3,8 @@ export interface Task {
   name: string;
   prompt: string;
   cron_expr: string;
+  scheduled_at?: string;  // ISO datetime for one-off tasks
+  is_one_off: boolean;
   working_dir: string;
   discord_webhook?: string;
   slack_webhook?: string;
@@ -17,7 +19,8 @@ export interface Task {
 export interface TaskRequest {
   name: string;
   prompt: string;
-  cron_expr: string;
+  cron_expr: string;              // Empty for one-off tasks
+  scheduled_at?: string;          // ISO datetime for scheduled one-off
   working_dir: string;
   discord_webhook?: string;
   slack_webhook?: string;

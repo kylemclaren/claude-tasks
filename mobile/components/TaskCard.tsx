@@ -242,7 +242,15 @@ export function TaskCard({ task }: Props) {
         </View>
       </View>
 
-      <Text style={[styles.cron, { color: colors.textSecondary }]}>{cronToHuman(task.cron_expr)}</Text>
+      <Text style={[styles.cron, { color: colors.textSecondary }]}>
+        {task.is_one_off
+          ? task.scheduled_at
+            ? `Once: ${new Date(task.scheduled_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`
+            : task.last_run_at
+              ? 'One-off (completed)'
+              : 'One-off'
+          : cronToHuman(task.cron_expr)}
+      </Text>
 
       <Text style={[styles.nextRun, { color: colors.textMuted }]}>
         {task.next_run_at ? `Next: ${formatRelativeTime(task.next_run_at)}` : 'Not scheduled'}

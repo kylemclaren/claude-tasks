@@ -4,13 +4,14 @@ import "time"
 
 // TaskRequest represents a task creation/update request
 type TaskRequest struct {
-	Name           string `json:"name"`
-	Prompt         string `json:"prompt"`
-	CronExpr       string `json:"cron_expr"`
-	WorkingDir     string `json:"working_dir"`
-	DiscordWebhook string `json:"discord_webhook,omitempty"`
-	SlackWebhook   string `json:"slack_webhook,omitempty"`
-	Enabled        bool   `json:"enabled"`
+	Name           string  `json:"name"`
+	Prompt         string  `json:"prompt"`
+	CronExpr       string  `json:"cron_expr"`                // Empty for one-off tasks
+	ScheduledAt    *string `json:"scheduled_at,omitempty"`   // ISO datetime for one-off tasks
+	WorkingDir     string  `json:"working_dir"`
+	DiscordWebhook string  `json:"discord_webhook,omitempty"`
+	SlackWebhook   string  `json:"slack_webhook,omitempty"`
+	Enabled        bool    `json:"enabled"`
 }
 
 // TaskResponse represents a task in API responses
@@ -19,6 +20,8 @@ type TaskResponse struct {
 	Name           string     `json:"name"`
 	Prompt         string     `json:"prompt"`
 	CronExpr       string     `json:"cron_expr"`
+	ScheduledAt    *time.Time `json:"scheduled_at,omitempty"`
+	IsOneOff       bool       `json:"is_one_off"`
 	WorkingDir     string     `json:"working_dir"`
 	DiscordWebhook string     `json:"discord_webhook,omitempty"`
 	SlackWebhook   string     `json:"slack_webhook,omitempty"`

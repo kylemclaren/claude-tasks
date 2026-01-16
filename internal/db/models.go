@@ -7,7 +7,8 @@ type Task struct {
 	ID             int64      `json:"id"`
 	Name           string     `json:"name"`
 	Prompt         string     `json:"prompt"`
-	CronExpr       string     `json:"cron_expr"`
+	CronExpr       string     `json:"cron_expr"`                // Empty for one-off tasks
+	ScheduledAt    *time.Time `json:"scheduled_at,omitempty"`   // When one-off task should run (nil = run immediately)
 	WorkingDir     string     `json:"working_dir"`
 	DiscordWebhook string     `json:"discord_webhook,omitempty"`
 	SlackWebhook   string     `json:"slack_webhook,omitempty"`
@@ -16,6 +17,11 @@ type Task struct {
 	UpdatedAt      time.Time  `json:"updated_at"`
 	LastRunAt      *time.Time `json:"last_run_at,omitempty"`
 	NextRunAt      *time.Time `json:"next_run_at,omitempty"`
+}
+
+// IsOneOff returns true if this is a one-off (non-recurring) task
+func (t *Task) IsOneOff() bool {
+	return t.CronExpr == ""
 }
 
 // TaskRun represents an execution of a task
