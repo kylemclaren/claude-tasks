@@ -182,6 +182,17 @@ export default function TaskDetailScreen() {
             { backgroundColor: colors.surfaceSecondary },
             pressed && { backgroundColor: colors.border }
           ]}
+          onPress={() => router.push(`/task/edit/${taskId}`)}
+        >
+          <Text style={[styles.actionButtonText, { color: colors.textSecondary }]}>Edit</Text>
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.actionButton,
+            { backgroundColor: colors.surfaceSecondary },
+            pressed && { backgroundColor: colors.border }
+          ]}
           onPress={handleToggle}
         >
           <Text style={[styles.actionButtonText, { color: colors.textSecondary }]}>
@@ -197,7 +208,7 @@ export default function TaskDetailScreen() {
           ]}
           onPress={handleRun}
         >
-          <Text style={styles.runButtonText}>Run Now</Text>
+          <Text style={styles.runButtonText}>Run</Text>
         </Pressable>
 
         <Pressable
