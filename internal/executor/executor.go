@@ -183,9 +183,11 @@ func (e *Executor) ExecuteWithRun(ctx context.Context, task *db.Task, run *db.Ta
 func (e *Executor) executeStreaming(ctx context.Context, task *db.Task, run *db.TaskRun, startTime time.Time) *Result {
 	// Build streaming command
 	// --output-format stream-json outputs JSON lines with streaming content
+	// --verbose is required when using stream-json with --print
 	cmd := exec.CommandContext(ctx, "claude", "-p",
 		"--dangerously-skip-permissions",
 		"--output-format", "stream-json",
+		"--verbose",
 		task.Prompt)
 	cmd.Dir = task.WorkingDir
 
