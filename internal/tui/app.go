@@ -356,7 +356,7 @@ func (m *Model) initFormInputs() {
 	// Prompt uses textarea for multi-line input
 	m.promptInput = textarea.New()
 	m.promptInput.Placeholder = "Review recent changes and summarize..."
-	m.promptInput.CharLimit = 2000
+	m.promptInput.CharLimit = 50000
 	m.promptInput.SetWidth(inputWidth + 2)
 	m.promptInput.SetHeight(m.getTextareaHeight())
 	m.promptInput.ShowLineNumbers = false
